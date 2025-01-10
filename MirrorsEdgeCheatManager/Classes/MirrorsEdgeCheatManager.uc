@@ -4,19 +4,19 @@ var CheatHelperProxy HelperProxy;
 var vector SavedLocation;
 var rotator SavedRotation;
 var vector SavedVelocity;
-var float SavedZVelocity;  // Store vertical component of velocity for jump arcs
-var vector SavedLastJumpLocation;  // Variable to store the saved LastJumpLocation
-var TdPawn.EMovement SavedMoveState;  // Variable to store the saved move state
-var float SavedHealth;              // Variable to store saved health
-var bool SavedReactionTimeState;   // Variable to store reaction time state
-var float SavedReactionTimeEnergy;   // Variable to store saved reaction time energy
+var float SavedZVelocity;
+var vector SavedLastJumpLocation;
+var TdPawn.EMovement SavedMoveState;
+var float SavedHealth;
+var bool SavedReactionTimeState;
+var float SavedReactionTimeEnergy;
 var vector TimerLocation;
-var bool bInfiniteAmmoEnabled;  // Variable to track the state of infinite ammo
-var bool bBotOHKOEnabled;  // Variable to track the state of BotOHKO
-var bool bHoldFireEnabled;  // Variable to track gunfire state
-var bool bMonitorNoclipFallHeight; // Flag to monitor falling height state
+var bool bInfiniteAmmoEnabled;
+var bool bBotOHKOEnabled;
+var bool bHoldFireEnabled;
+var bool bMonitorNoclipFallHeight;
 var bool bMonitorNoclipDeath;
-var string MeleeState;  // Variable to track melee state
+var string MeleeState;
 var bool bJumpMacroActive;
 var bool bInteractMacroActive;
 var bool bGrabMacroActive;
@@ -379,7 +379,7 @@ exec function Noclip()
     }
 }
 
-// Checks if player is still in the air after exiting noclip, and if landed, sets fall values back to default
+// Checks if player is still in the air after exiting noclip, and if landed, sets fall values back to default. This is used for the TpToSurface function too
 function NoclipFallHeightMonitoring()
 {
     local TdPawn PlayerPawn;
@@ -806,7 +806,6 @@ exec function LastJumpLocation(float NewZValueInMeters)
         // Convert the specified Z value from meters to Unreal units by multiplying by 100
         PlayerPawn.LastJumpLocation.Z = NewZValueInMeters * 100;
 
-        // Optional: Display confirmation message with both formats
         ClientMessage("Last Jump Location Z set to: " $ NewZValueInMeters);
     }
     else
