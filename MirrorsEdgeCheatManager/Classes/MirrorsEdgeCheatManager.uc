@@ -1516,7 +1516,7 @@ exec function Resolution(int Width, int Height, optional string Windowed)
     // Check if UI needs to be corrected, we only care once the horizontal resolution exceeds 1920 as this is when blurry UI occurs
     if (Width > 1920)
     {
-        // Adjust UI for non-16:9 ratios - note that this does NOT adjust the aspect ratio itself, and I'm not sure if we can override
+        // Adjust UI for any aspect ratio - note that this does NOT adjust the aspect ratio itself, and I'm not sure if we can override
         // ConstrainedAspectRatio mid-game as DICE has hardcoded it to revert to 16:9 (or what Tweaks has set it to) every tick
         RestestValue = int(float(Height) * (AspectRatio / (16.0 / 9.0)) + 0.5);
         ScalingFactor = float(Height) / 1080.0;
