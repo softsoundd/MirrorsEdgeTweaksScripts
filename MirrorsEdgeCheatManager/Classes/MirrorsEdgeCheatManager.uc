@@ -516,6 +516,8 @@ exec function CurrentLocation()
 }
 
 // Save the current location, rotation, velocity, and move state of the player
+// Todo: Need to save these properties somewhere that don't get reset on level changes/restarts, as the CheatManager class hierarchy is not persistent.
+// Need to transfer these properties to a class that doesn't reset, OR somehow retrieve them from the Console Scrollback array history from the ClientMessages - this is my closest lead.
 exec function SaveLocation()
 {
     local vector ConvertedLocation;
@@ -959,14 +961,14 @@ exec function UltraGraphics()
     ClientMessage("Ultra graphics enabled.");
 }
 
-// Freezes time and hides crosshair
+// Freezes time and hides crosshair - this too is stolen from UE3 source
 exec function FreezeFrame(float delay)
 {
 	WorldInfo.Game.SetPause(Outer,Outer.CanUnpause);
 	WorldInfo.PauseDelay = WorldInfo.TimeSeconds + delay;
 }
 
-// Streaming level debugging
+// Level streaming handler
 function SetLevelStreamingStatus(name PackageName, bool bShouldBeLoaded, bool bShouldBeVisible)
 {
 	local PlayerController PC;
@@ -1225,7 +1227,7 @@ exec function GrabMacro_OnRelease()
     }
 }
 
-// Internal functions to simulate the jump input
+// Internal functions to simulate the actions of each macro
 exec function MacroJump()
 {
     ConsoleCommand("Jump");
@@ -1466,7 +1468,7 @@ exec function SpawnMerc()
 }
 
 // Rudimentary function for cycling through the view targets of actors of the specified class (i.e. TdBotPawn)
-// Todo: see if bot views can be offsetted forwards slightly to avoid head clipping
+// Todo: see if bot views can be offsetted forwards slightly to avoid head clipping (or removing the head?)
 exec function ViewClass(class<actor> aClass)
 {
 	local actor other, first;
