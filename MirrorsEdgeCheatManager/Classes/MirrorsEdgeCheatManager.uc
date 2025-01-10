@@ -291,7 +291,8 @@ exec function ChangeSize(float F)
     ClientMessage("Faith's size scaled by: " $ F);
 }
 
-// Sets maximum ammo on all weapons. Todo: see if we can set these variables directly rather than relying on the "set" command
+// Sets maximum ammo on all weapons. Todo: see if we can set these variables directly rather than relying on the "set" command.
+// Also make gun damage persistent and not just for the currently loaded bots
 exec function BotOHKO()
 {
     if (bBotOHKOEnabled)
@@ -517,7 +518,7 @@ exec function CurrentLocation()
 
 // Save the current location, rotation, velocity, and move state of the player
 // Todo: Need to save these properties somewhere that don't get reset on level changes/restarts, as the CheatManager class hierarchy is not persistent.
-// Need to transfer these properties to a class that doesn't reset, OR somehow retrieve them from the Console Scrollback array history from the ClientMessages - this is my closest lead.
+// Need an appropriate class that doesn't reset, OR somehow retrieve saved values from the Console Scrollback array history from the ClientMessages - this is my closest lead.
 exec function SaveLocation()
 {
     local vector ConvertedLocation;
@@ -572,7 +573,8 @@ exec function SaveLocation()
     ConsoleCommand("DisplayCheatMessage Player state saved.");
 }
 
-// Teleport back to the saved location and rotation, but pause velocity until the OnRelease function is executed
+// Teleport back to the saved location and rotation, but pause velocity until the OnRelease function is executed.
+// Todo: Fix troublesome moves that don't apply as intended (i.e. zip lines) and add support for others
 exec function TpToSavedLocation()
 {
     local vector ConvertedLocation;
@@ -659,7 +661,7 @@ exec function TpToSavedLocation()
     }
 }
 
-// Function to trigger the timer, restore velocity, and reset camera direction upon releasing the teleport key bind
+// Function to trigger the timer, restore velocity and movement state upon releasing the teleport key bind
 exec function TpToSavedLocation_OnRelease()
 {
     local TdPlayerController PlayerController;
@@ -791,7 +793,6 @@ exec function SaveTimerLocation()
     // Reset the timer and pause it
     ConsoleCommand("ResetHUDTimer");
 
-    // Display confirmation for the target location in meters (divide by 100)
     ClientMessage("Timer location set: X=" $ (TimerLocation.X / 100) $ ", Y=" $ (TimerLocation.Y / 100) $ ", Z=" $ (TimerLocation.Z / 100));
 
     ConsoleCommand("DisplayCheatMessage Timer location set.");
@@ -1473,9 +1474,9 @@ exec function ViewClass(class<actor> aClass)
 {
 	local actor other, first;
 	local bool bFound;
-
+	
 	first = None;
-
+	
 	ForEach AllActors(aClass, other)
 	{
 		if (bFound || (first == None))
@@ -1487,7 +1488,7 @@ exec function ViewClass(class<actor> aClass)
 		if (other == ViewTarget)
 			bFound = true;
 	}
-
+	
 	if (first != None)
 	{
 		if (Pawn(first) != None)
