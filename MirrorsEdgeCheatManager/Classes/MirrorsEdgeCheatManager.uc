@@ -361,7 +361,8 @@ exec function Noclip()
             {
                 PlayerPawn.GotoState('None'); // Exit UncontrolledFall
             }
-
+            
+            PlayerPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
             PlayerPawn.SetMove(MOVE_Walking); // Force walking as certain moves won't allow noclip to function
 
             bCheatFlying = true;
@@ -732,6 +733,7 @@ exec function TpToSavedLocation()
                 SavedMoveState == MOVE_RumpSlide || 
                 SavedMoveState == MOVE_WallRun)
             {
+                PlayerPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
                 PlayerPawn.SetMove(SavedMoveState);  // Apply the saved move state only for specified moves
             }
         }
@@ -858,6 +860,8 @@ exec function TpToSurface()
         {
             TdPawn(Pawn).GotoState('None');  // Exit the UncontrolledFall state
         }
+
+        PlayerPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
 
         // Start monitoring fall state to dynamically set fall height
         if (PlayerPawn != None)
