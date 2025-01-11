@@ -1,6 +1,7 @@
 class MirrorsEdgeCheatManager extends TdCheatManager;
 
 var CheatHelperProxy HelperProxy;
+var SaveLoadHandler SaveLoad;
 var vector SavedLocation;
 var rotator SavedRotation;
 var vector SavedVelocity;
@@ -517,8 +518,6 @@ exec function CurrentLocation()
 }
 
 // Save the current location, rotation, velocity, and move state of the player
-// Todo: Need to save these properties somewhere that don't get reset on level changes/restarts, as the CheatManager class hierarchy is not persistent.
-// Need an appropriate class that doesn't reset, OR somehow retrieve saved values from the Console Scrollback array history from the ClientMessages - this is my closest lead.
 exec function SaveLocation()
 {
     local vector ConvertedLocation;
@@ -541,12 +540,12 @@ exec function SaveLocation()
     SavedRotation.Yaw = Pawn.Rotation.Yaw;            // Capture the yaw from the Pawn's rotation
     SavedRotation.Roll = 0;                           // Roll isn't used, but needs to be set
 
-    // Convert the position by dividing by 100 for display
+    // Convert the position by dividing by 100 for ClientMessage display
     ConvertedLocation.X = SavedLocation.X / 100;
     ConvertedLocation.Y = SavedLocation.Y / 100;
     ConvertedLocation.Z = SavedLocation.Z / 100;
 
-    // Convert the rotation back to degrees (360 degrees from 65536)
+    // Convert the rotation back to degrees (360 degrees from 65536) for ClientMessage display
     PitchDegrees = (float(SavedRotation.Pitch) / 65536.0) * 360.0;
     YawDegrees = (float(SavedRotation.Yaw) / 65536.0) * 360.0;
 
@@ -556,37 +555,144 @@ exec function SaveLocation()
         PitchDegrees -= 360.0;  // Convert pitches above 180 to negative values
     }
 
-    // Display the converted location and rotation to the player
-    ClientMessage("Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $ 
-                  " | Saved Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees);
-
     // Save the move state
     PlayerPawn = TdPawn(Pawn); // Cast PlayerOwner.Pawn to TdPawn
     if (PlayerPawn != None)
     {
         SavedLastJumpLocation = PlayerPawn.LastJumpLocation;  // Save LastJumpLocation
         SavedMoveState = PlayerPawn.MovementState;            // Save the move state
-        ClientMessage("Saved Move State: " $ SavedMoveState); // Debug message to confirm move state is saved
+    }
+
+    // Display the saved properties
+    ClientMessage("Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $ 
+                  " | Saved Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees $ " | Saved Move State: " $ SavedMoveState);
+
+    // Initialise SaveLoadHandler
+    if (SaveLoad == None)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
+    // Save properties using SaveLoadHandler
+    SaveLoad.SaveData("SavedLocation", class'SaveLoadHandler'.static.SerialiseVector(SavedLocation));
+    SaveLoad.SaveData("SavedVelocity", class'SaveLoadHandler'.static.SerialiseVector(SavedVelocity));
+    SaveLoad.SaveData("SavedRotation", class'SaveLoadHandler'.static.SerialiseRotator(SavedRotation));
+    SaveLoad.SaveData("SavedHealth", string(SavedHealth));
+    SaveLoad.SaveData("SavedReactionTimeEnergy", string(SavedReactionTimeEnergy));
+    SaveLoad.SaveData("SavedReactionTimeState", string(SavedReactionTimeState));
+
+    if (PlayerPawn != None)
+    {
+        SaveLoad.SaveData("SavedLastJumpLocation", class'SaveLoadHandler'.static.SerialiseVector(SavedLastJumpLocation));
+        SaveLoad.SaveData("SavedMoveState", EnumToString(PlayerPawn.MovementState));
     }
 
     // Confirmation message
     ConsoleCommand("DisplayCheatMessage Player state saved.");
 }
 
+// Converts the movement enums into a string representation for the SaveLoadHandler class
+static function string EnumToString(EMovement MoveState)
+{
+    switch (MoveState)
+    {
+        case MOVE_None:               return "MOVE_None";
+        case MOVE_Walking:            return "MOVE_Walking";
+        case MOVE_Walking:            return "MOVE_Jump";
+        case MOVE_Falling:            return "MOVE_Falling";
+        case MOVE_WallRunningRight:   return "MOVE_WallRunningRight";
+        case MOVE_WallRunningLeft:    return "MOVE_WallRunningLeft";
+        case MOVE_WallClimbing:       return "MOVE_WallClimbing";
+        case MOVE_Crouch:             return "MOVE_Crouch";
+        case MOVE_Climb:              return "MOVE_Climb";
+        case MOVE_ZipLine:            return "MOVE_ZipLine";
+        case MOVE_Balance:            return "MOVE_Balance";
+        case MOVE_LedgeWalk:          return "MOVE_LedgeWalk";
+        case MOVE_RumpSlide:          return "MOVE_RumpSlide";
+        case MOVE_WallRun:            return "MOVE_WallRun";
+    }
+    return "MOVE_Walking"; // Fallback
+}
+
+static function EMovement StringToEMovement(string EnumValue)
+{
+    EnumValue = Locs(EnumValue); // Convert to lowercase to make it case-insensitive, just incase
+    EnumValue = Repl(EnumValue, " ", ""); // Remove spaces just incase
+
+    if (EnumValue == "move_none")              return MOVE_None;
+    else if (EnumValue == "move_walking")      return MOVE_Walking;
+    else if (EnumValue == "move_jump")      return MOVE_Jump;
+    else if (EnumValue == "move_falling")      return MOVE_Falling;
+    else if (EnumValue == "move_wallrunningright") return MOVE_WallRunningRight;
+    else if (EnumValue == "move_wallrunningleft")  return MOVE_WallRunningLeft;
+    else if (EnumValue == "move_wallclimbing") return MOVE_WallClimbing;
+    else if (EnumValue == "move_crouch")       return MOVE_Crouch;
+    else if (EnumValue == "move_climb")        return MOVE_Climb;
+    else if (EnumValue == "move_zipline")      return MOVE_ZipLine;
+    else if (EnumValue == "move_balance")      return MOVE_Balance;
+    else if (EnumValue == "move_ledgewalk")    return MOVE_LedgeWalk;
+    else if (EnumValue == "move_rumpslide")    return MOVE_RumpSlide;
+    else if (EnumValue == "move_wallrun")      return MOVE_WallRun;
+
+    return MOVE_Walking; // Fallback
+}
+
 // Teleport back to the saved location and rotation, but pause velocity until the OnRelease function is executed.
-// Todo: Fix troublesome moves that don't apply as intended (i.e. zip lines) and add support for others
+// Todo: Add proper support for applying moves
 exec function TpToSavedLocation()
 {
     local vector ConvertedLocation;
     local float PitchDegrees, YawDegrees;
     local TdPlayerController PlayerController;
     local TdPawn PlayerPawn;
+    local string SerialisedVector, SerialisedRotator;
 
     // Reset the timer to 0 immediately upon teleportation
     ConsoleCommand("ResetHUDTimer");
 
+    // Initialise SaveLoadHandler
+    if (SaveLoad == None)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
+    // Load properties from SaveLoadHandler
+    SerialisedVector = SaveLoad.LoadData("SavedLocation");
+    if (SerialisedVector != "")
+    {
+        SavedLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
+    }
+
+    SerialisedVector = SaveLoad.LoadData("SavedVelocity");
+    if (SerialisedVector != "")
+    {
+        SavedVelocity = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
+    }
+
+    SerialisedRotator = SaveLoad.LoadData("SavedRotation");
+    if (SerialisedRotator != "")
+    {
+        SavedRotation = class'SaveLoadHandler'.static.DeserialiseRotator(SerialisedRotator);
+    }
+
+    SavedHealth = float(SaveLoad.LoadData("SavedHealth"));
+    SavedReactionTimeEnergy = float(SaveLoad.LoadData("SavedReactionTimeEnergy"));
+    SavedReactionTimeState = bool(SaveLoad.LoadData("SavedReactionTimeState"));
+
+    SerialisedVector = SaveLoad.LoadData("SavedLastJumpLocation");
+    if (SerialisedVector != "")
+    {
+        SavedLastJumpLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
+    }
+
+    SerialisedVector = SaveLoad.LoadData("SavedMoveState");
+    if (SerialisedVector != "")
+    {
+        SavedMoveState = StringToEMovement(SerialisedVector);
+    }
+
     // If the saved location is valid, teleport back to it
-    if (SavedLocation != vect(0,0,0))  // Check if there is a saved location
+    if (SavedLocation != vect(0, 0, 0))  // Check if there is a saved location
     {
         // Set velocity to zero and change physics mode to "freeze" the player
         Pawn.Velocity = vect(0, 0, 0);          // Stop movement
@@ -598,7 +704,7 @@ exec function TpToSavedLocation()
         if (PlayerController != None)
         {
             WorldInfo.Game.SetGameSpeed(1);
-            PlayerController.bReactionTime = false;
+            PlayerController.bReactionTime = SavedReactionTimeState;
         }
 
         // Override UncontrolledFall state if currently active
@@ -611,8 +717,9 @@ exec function TpToSavedLocation()
         PlayerPawn = TdPawn(Pawn);
         if (PlayerPawn != None)
         {
-            PlayerPawn.LastJumpLocation = SavedLastJumpLocation;  // Restore LastJumpLocation
+            PlayerPawn.LastJumpLocation = SavedLastJumpLocation;  
             if (SavedMoveState == MOVE_Walking || 
+                SavedMoveState == MOVE_Jump || 
                 SavedMoveState == MOVE_Falling || 
                 SavedMoveState == MOVE_WallRunningRight ||
                 SavedMoveState == MOVE_WallRunningLeft || 
@@ -629,8 +736,8 @@ exec function TpToSavedLocation()
             }
         }
 
-        Pawn.SetPhysics(PHYS_None);  // Truly stop movement
-        ConsoleCommand("set TdPawn bAllowMoveChange False"); // Prevent attacks, q turns etc. from making us reset physics
+        Pawn.SetPhysics(PHYS_None);  
+        ConsoleCommand("set TdPawn bAllowMoveChange False"); 
 
         // Convert the saved location for display (divide by 100)
         ConvertedLocation.X = SavedLocation.X / 100;
@@ -647,9 +754,9 @@ exec function TpToSavedLocation()
             PitchDegrees -= 360.0;  // Convert pitches above 180 to negative values
         }
 
-        // Display the converted location and rotation to the player with commas
+        // Display the loaded properties
         ClientMessage("Teleported to Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $ 
-                      " | Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees);
+                      " | Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees $ " | Move State: " $ SavedMoveState);
 
         // Teleport to the saved location and rotation
         BugItGo(SavedLocation.X, SavedLocation.Y, SavedLocation.Z, SavedRotation.Pitch, SavedRotation.Yaw, 0);  // Roll is always 0
