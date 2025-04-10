@@ -1,0 +1,6 @@
+set TdSPGame HUDType TdSPHUD
+set TdSPTimeTrialGame HUDType TdTimeTrialHUD
+set TdSPTutorialGame HUDType TdTutorialHUD
+set TdSPLevelRace HUDType TdSPLevelRaceHUD
+set GameInfo PlayerControllerClass TdGame.TdPlayerController
+RestartLevel
