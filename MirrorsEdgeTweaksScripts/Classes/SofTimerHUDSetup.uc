@@ -21,9 +21,9 @@ simulated event PostBeginPlay()
 
     super.PostBeginPlay();
 
-    // for whatever reason we must delay these in order for it to be called...
     if (CurrentGame != None && WorldInfo.Game.IsA('TdMenuGameInfo'))
     {
+        // for whatever reason we must delay these in order for it to be called...
         SetTimer(0.005, true, 'CheckIntendedGameMode');
         SetTimer(0.05, false, 'SofTimerMessage');
     }
@@ -39,7 +39,11 @@ simulated event PostBeginPlay()
 
 function SofTimerMessage()
 {
-    ClientMessage("SofTimer currently active. If you want to hide the in-game timer HUD, enter \"toggletimer\".");
+    ClientMessage("SofTimer currently active. You can toggle various HUD elements with the following commands:");
+    ClientMessage("- \"toggletimer\" | LRT Timer (enabled by default) - it is recommended to use the SofTimer readout LiveSplit ASL in either case");
+    ClientMessage("- \"toggletrainerhud\" | Trainer HUD: (disabled by default, has mutual exclusivity with the speedometer)");
+    ClientMessage("- \"togglespeed\" | Speedometer: (disabled by default, has mutual exclusivity with the Trainer HUD)");
+    ClientMessage("- \"togglemacrofeedback\" | Macro feedback messages: (disabled by default)");
 }
 
 function CheckIntendedGameMode()

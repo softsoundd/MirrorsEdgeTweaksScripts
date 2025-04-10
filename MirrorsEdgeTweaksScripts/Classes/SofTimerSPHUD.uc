@@ -1516,7 +1516,6 @@ exec function ToggleTimer()
         SaveLoad = new class'SaveLoadHandler';
     }
     SaveLoad.SaveData("TimerHUDVisible", bTimerVisible ? "true" : "false");
-    PlayerOwner.ClientMessage("Timer HUD " $ (bTimerVisible ? "shown" : "hidden"));
 }
 
 // DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
@@ -1524,8 +1523,10 @@ function DrawLivingHUD()
 {
     local TdSPStoryGame Game;
     local float PosY;
-    Game = TdSPStoryGame(WorldInfo.Game);
+
     super(TdSPHUD).DrawLivingHUD();
+
+    Game = TdSPStoryGame(WorldInfo.Game);
 
     if (Game != none)
     {
@@ -1551,10 +1552,6 @@ function DrawLivingHUD()
         
         if (ShowSpeed)
         {
-            if (ShowTrainerHUDItems)
-            {
-                ShowTrainerHUDItems = !ShowTrainerHUDItems;
-            }
             DrawSpeed(PosY);
         }
 
@@ -1741,7 +1738,6 @@ function DrawTrainerItems()
 {
     local float CurrentTime;
     local TdPawn PlayerPawn;
-    local TdPlayerController PlayerController;
     local float X, Y, ShadowOffset;
     local float RoundedX, RoundedY, RoundedZ;
     local float RoundedSpeed, RoundedYaw, RoundedPitch;
@@ -1758,7 +1754,6 @@ function DrawTrainerItems()
     CurrentTime = WorldInfo.TimeSeconds;
 
     PlayerPawn = TdPawn(PlayerOwner.Pawn);
-    PlayerController = TdPlayerController(PlayerOwner);
 
     if (PlayerPawn != None)
     {
@@ -1768,22 +1763,19 @@ function DrawTrainerItems()
         PlayerVelocity.Z = 0;
         PlayerSpeed = VSize(PlayerVelocity);
         PlayerSpeed *= 0.036;
-        
-        // Update max velocity and height using helper function
+
         MaxVelocity = UpdateMaxValue(MaxVelocity, PlayerSpeed, LastMaxVelocityUpdateTime, CurrentTime);
         MaxHeight   = UpdateMaxValue(MaxHeight, CurrentLocation.Z, LastMaxHeightUpdateTime, CurrentTime);
 
         PlayerHealth = PlayerPawn.Health;
         MoveState = PlayerPawn.MovementState;
-        ReactionTimeEnergy = PlayerController.ReactionTimeEnergy;
+        ReactionTimeEnergy = SpeedrunController.ReactionTimeEnergy;
 
-        // Use controller rotation for pitch if available
         if (PlayerPawn.Controller != None)
         {
             CurrentRotation.Pitch = PlayerPawn.Controller.Rotation.Pitch;
         }
 
-        // Convert location to meters by dividing by 100
         ConvertedLocation = CurrentLocation / 100;
 
         // Convert rotation (from 65536 units to degrees)
@@ -1792,7 +1784,6 @@ function DrawTrainerItems()
         if (Yaw < 0) Yaw += 360.0;
         if (Pitch > 180.0) Pitch -= 360.0;
 
-        // Use helper function to perform rounding to two decimals
         RoundedX = RoundToTwoDecimals(ConvertedLocation.X);
         RoundedY = RoundToTwoDecimals(ConvertedLocation.Y);
         RoundedZ = RoundToTwoDecimals(ConvertedLocation.Z);
@@ -1800,15 +1791,12 @@ function DrawTrainerItems()
         RoundedYaw = RoundToTwoDecimals(Yaw);
         RoundedPitch = RoundToTwoDecimals(Pitch);
         RoundedMaxSpeed = RoundToTwoDecimals(MaxVelocity);
-        RoundedMaxHeight = RoundToTwoDecimals(MaxHeight / 100);  // Convert back to meters for display
-
-        // Handle jump location and Z delta
+        RoundedMaxHeight = RoundToTwoDecimals(MaxHeight / 100);
         RoundedLastJumpZ = RoundToTwoDecimals(PlayerPawn.LastJumpLocation.Z / 100);
         RoundedZDelta = RoundToTwoDecimals((CurrentLocation.Z - PlayerPawn.LastJumpLocation.Z) / 100);
 
         MacroElapsedTime = (bIsMacroTimerActive) ? (CurrentTime - MacroStartTime) : 0.0;
 
-        // Prepare HUD texts using FormatFloat
         HealthText = "H = " $ int(PlayerHealth) $ "%";
         ReactionTimeEnergyText = "RT = " $ int(ReactionTimeEnergy) $ "%";
         MoveStateText = "MS = " $ (Left(string(MoveState), 5) == "MOVE_" ? Mid(string(MoveState), 5) : string(MoveState));
@@ -1823,20 +1811,13 @@ function DrawTrainerItems()
         YawText = "Y = " $ FormatFloat(RoundedYaw) $ " deg";
         PitchText = "P = " $ FormatFloat(RoundedPitch) $ " deg";
 
-        // Set text drawing properties
         ShadowOffset = 2.0;
         X = 0.8275 * Canvas.SizeX;
         Y = 0.80 * Canvas.SizeY;
         Canvas.Font = Class'Engine'.static.GetMediumFont();
 
-        // Draw HUD items if enabled
         if (ShowTrainerHUDItems)
         {
-            if (ShowSpeed)
-            {
-                ShowSpeed = !ShowSpeed;
-            }
-
             DrawTextWithShadow(HealthText, X, Y - 16 * 25.0, ShadowOffset);
             DrawTextWithShadow(ReactionTimeEnergyText, X, Y - 15 * 25.0, ShadowOffset);
             DrawTextWithShadow(MoveStateText, X, Y - 14 * 25.0, ShadowOffset);
@@ -1852,7 +1833,6 @@ function DrawTrainerItems()
             DrawTextWithShadow(PitchText, X, Y - 1 * 25.0, ShadowOffset);
         }
 
-        // Draw HUD messages if enabled
         if (ShowMacroFeedback)
         {
             if (TrainerHUDMessageText != "" && CurrentTime - TrainerHUDMessageDisplayTime <= TrainerHUDMessageDuration)
@@ -1903,12 +1883,20 @@ exec function DisplayTrainerHUDMessage(string Message)
 exec function ToggleSpeed()
 {
     ShowSpeed = !ShowSpeed;
+    if (ShowSpeed)
+    {
+        ShowTrainerHUDItems = false;
+    }
     SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
 }
 
 exec function ToggleTrainerHUD()
 {
     ShowTrainerHUDItems = !ShowTrainerHUDItems;
+    if (ShowTrainerHUDItems)
+    {
+        ShowSpeed = false;
+    }
     SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
 }
 
@@ -1922,7 +1910,7 @@ defaultproperties
 {
     TimerPos=(X=1000,Y=55)
     SplitPos=(X=1000,Y=88)
-    SpeedPos=(X=1000,Y=580)
+    SpeedPos=(X=1000,Y=625)
     Chapter9CompleteMarker = "AnyPercentInProgress"
     bTimerVisible = true
     ShowSpeed = false;

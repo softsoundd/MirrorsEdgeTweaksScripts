@@ -43,6 +43,7 @@ struct DollyKeyframe
 
 var array<DollyKeyframe> Keyframes;
 
+
 exec function ListCheats()
 {
     ClientMessage(" ");
@@ -745,6 +746,12 @@ exec function TpToSavedLocation()
         SavedMoveState = StringToEMovement(SerialisedVector);
     }
 
+    SerialisedVector = SaveLoad.LoadData("TimerLocation");
+    if (SerialisedVector != "")
+    {
+        TimerLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
+    }
+
     // If the saved location is valid, teleport back to it
     if (SavedLocation != vect(0, 0, 0))  // Check if there is a saved location
     {
@@ -955,6 +962,12 @@ exec function TpToSurface()
 exec function SaveTimerLocation()
 {
     TimerLocation = Pawn.Location;
+
+    if (SaveLoad == None)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+    SaveLoad.SaveData("TimerLocation", class'SaveLoadHandler'.static.SerialiseVector(TimerLocation));
 
     // Use ConsoleCommand to pass the target location to the HUD
     ConsoleCommand("SetHUDTimerLocation " $ TimerLocation.X $ " " $ TimerLocation.Y $ " " $ TimerLocation.Z);
@@ -1463,22 +1476,55 @@ function bool GetReactionTimeState()
     return false;  // Default to false if unavailable
 }
 
-// Sets resolution AND fixes UI. Todo: see if we can reference the GetPossibleScreenResolutions function to filter out invalid resolutions
+// This function sets the screen resolution, adjusts UI scaling, and verifies that the chosen resolution is valid
 exec function Resolution(int Width, int Height, optional string Windowed)
 {
+    local TdUIScene UI;
+    local array<string> ValidResolutions;
+    local string CandidateResolution;
+    local int i;
+    local string Res;
+    local bool bIsValid;
     local float ScalingFactor;
     local int RestestValue;
     local float AspectRatio;
     local string ResolutionCommand;
     local string UIStyleCommand;
 
+    if (Windowed == "")
+    {
+        UI = GetActiveOrDefaultTdUIScene();
+        if (UI != none)
+        {
+            UI.GetPossibleScreenResolutions(ValidResolutions);
+            CandidateResolution = string(Width) $ "x" $ string(Height);
+            bIsValid = false;
+            for (i = 0; i < ValidResolutions.Length; i++)
+            {
+                if (ValidResolutions[i] == CandidateResolution)
+                {
+                    bIsValid = true;
+                    break;
+                }
+            }
+            if (!bIsValid)
+            {
+                ClientMessage("Invalid fullscreen resolution: " $ CandidateResolution $ " is not supported in fullscreen - try using the windowed argument instead. Supported fullscreen resolutions for your system:");
+                for (i = 0; i < ValidResolutions.Length; i++)
+                {
+                    Res = ValidResolutions[i];
+                    ClientMessage(Res);
+                }
+                return;
+            }
+        }
+    }
+
+    // Continue with setting the resolution and UI adjustments.
     AspectRatio = float(Width) / float(Height);
 
-    // Check if UI needs to be corrected, we only care once the horizontal resolution exceeds 1920 as this is when blurry UI occurs
     if (Width > 1920)
     {
-        // Adjust UI for any aspect ratio - note that this does NOT adjust the aspect ratio itself, and I'm not sure if we can override
-        // ConstrainedAspectRatio mid-game as DICE has hardcoded it to revert to 16:9 (or what Tweaks has set it to) every tick
         RestestValue = int(float(Height) * (AspectRatio / (16.0 / 9.0)) + 0.5);
         ScalingFactor = float(Height) / 1080.0;
     }
@@ -1494,15 +1540,9 @@ exec function Resolution(int Width, int Height, optional string Windowed)
         ResolutionCommand = "setres " $ string(Width) $ "x" $ string(Height) $ "x32w";
     }
     ConsoleCommand(ResolutionCommand);
-
     ConsoleCommand("set MultiFont ResolutionTestTable (480,720," $ string(RestestValue) $ ")");
-
-    // Update UI scaling dynamically - this handles the majority of UI fine but certain text that is NOT drawn
-    // through UIStyle won't be scaled and will grow smaller the larger the resolution (time trial timer etc.)
-    // I really don't know if there's a way to account for all text, Tweaks deals with the same problem
     UIStyleCommand = "set UIStyle_Text Scale (X=" $ string(ScalingFactor) $ ",Y=" $ string(ScalingFactor) $ ")";
     ConsoleCommand(UIStyleCommand);
-
     ConsoleCommand("RestartLevel");
 
     ClientMessage("Resolution set to " $ string(Width) $ "x" $ string(Height) $ " and corrected blurry UI");
@@ -1651,6 +1691,182 @@ exec function PostProcess(string PropertyName, float X, optional float Y, option
     }
 }
 
+exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
+{
+    local WorldInfo WI;
+    local PlayerController PC;
+    local bool bIsPropertyRecognised;
+    local string boolString;
+    local float ConvertedTimeStep;
+
+    // Get the PlayerController from Outer.
+    PC = Outer;
+    if (PC == None)
+    {
+        ClientMessage("Error: Could not access PlayerController from Outer.");
+        return;
+    }
+
+    // Get WorldInfo from the PlayerController.
+    WI = PC.WorldInfo;
+    if (WI == None)
+    {
+        ClientMessage("Error: Could not access WorldInfo.");
+        return;
+    }
+
+    // Choose which timing struct to update based on a lower-case timing category.
+    if (TimingCategory == "primary" || TimingCategory == "primaryscenetiming")
+    {
+        if (PropertyName == "bfixedtimestep")
+        {
+            WI.PhysicsTimings.PrimarySceneTiming.bFixedTimeStep = (Value != 0);
+            bIsPropertyRecognised = true;
+            boolString = WI.PhysicsTimings.PrimarySceneTiming.bFixedTimeStep ? "true" : "false";
+            ClientMessage("Applied bFixedTimeStep = " $ boolString $ " to PrimarySceneTiming.");
+        }
+        else if (PropertyName == "timestep")
+        {
+            if (Value <= 0)
+            {
+                ClientMessage("Error: Hz value must be greater than zero.");
+                return;
+            }
+            ConvertedTimeStep = 1.0 / Value;
+            WI.PhysicsTimings.PrimarySceneTiming.TimeStep = ConvertedTimeStep;
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied TimeStep = " $ string(ConvertedTimeStep) $ " (from " $ string(Value) $ " Hz) to PrimarySceneTiming.");
+        }
+        else if (PropertyName == "maxsubsteps")
+        {
+            WI.PhysicsTimings.PrimarySceneTiming.MaxSubSteps = int(Value);
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied MaxSubSteps = " $ string(int(Value)) $ " to PrimarySceneTiming.");
+        }
+    }
+    else if (TimingCategory == "rigidbody" || TimingCategory == "compartmenttimingrigidbody")
+    {
+        if (PropertyName == "bfixedtimestep")
+        {
+            WI.PhysicsTimings.CompartmentTimingRigidBody.bFixedTimeStep = (Value != 0);
+            bIsPropertyRecognised = true;
+            boolString = WI.PhysicsTimings.CompartmentTimingRigidBody.bFixedTimeStep ? "true" : "false";
+            ClientMessage("Applied bFixedTimeStep = " $ boolString $ " to CompartmentTimingRigidBody.");
+        }
+        else if (PropertyName == "timestep")
+        {
+            if (Value <= 0)
+            {
+                ClientMessage("Error: Hz value must be greater than zero.");
+                return;
+            }
+            ConvertedTimeStep = 1.0 / Value;
+            WI.PhysicsTimings.CompartmentTimingRigidBody.TimeStep = ConvertedTimeStep;
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied TimeStep = " $ string(ConvertedTimeStep) $ " (from " $ string(Value) $ " Hz) to CompartmentTimingRigidBody.");
+        }
+        else if (PropertyName == "maxsubsteps")
+        {
+            WI.PhysicsTimings.CompartmentTimingRigidBody.MaxSubSteps = int(Value);
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied MaxSubSteps = " $ string(int(Value)) $ " to CompartmentTimingRigidBody.");
+        }
+    }
+    else if (TimingCategory == "fluid" || TimingCategory == "compartmenttimingfluid")
+    {
+        if (PropertyName == "bfixedtimestep")
+        {
+            WI.PhysicsTimings.CompartmentTimingFluid.bFixedTimeStep = (Value != 0);
+            bIsPropertyRecognised = true;
+            boolString = WI.PhysicsTimings.CompartmentTimingFluid.bFixedTimeStep ? "true" : "false";
+            ClientMessage("Applied bFixedTimeStep = " $ boolString $ " to CompartmentTimingFluid.");
+        }
+        else if (PropertyName == "timestep")
+        {
+            if (Value <= 0)
+            {
+                ClientMessage("Error: Hz value must be greater than zero.");
+                return;
+            }
+            ConvertedTimeStep = 1.0 / Value;
+            WI.PhysicsTimings.CompartmentTimingFluid.TimeStep = ConvertedTimeStep;
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied TimeStep = " $ string(ConvertedTimeStep) $ " (from " $ string(Value) $ " Hz) to CompartmentTimingFluid.");
+        }
+        else if (PropertyName == "maxsubsteps")
+        {
+            WI.PhysicsTimings.CompartmentTimingFluid.MaxSubSteps = int(Value);
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied MaxSubSteps = " $ string(int(Value)) $ " to CompartmentTimingFluid.");
+        }
+    }
+    else if (TimingCategory == "cloth" || TimingCategory == "compartmenttimingcloth")
+    {
+        if (PropertyName == "bfixedtimestep")
+        {
+            WI.PhysicsTimings.CompartmentTimingCloth.bFixedTimeStep = (Value != 0);
+            bIsPropertyRecognised = true;
+            boolString = WI.PhysicsTimings.CompartmentTimingCloth.bFixedTimeStep ? "true" : "false";
+            ClientMessage("Applied bFixedTimeStep = " $ boolString $ " to CompartmentTimingCloth.");
+        }
+        else if (PropertyName == "timestep")
+        {
+            if (Value <= 0)
+            {
+                ClientMessage("Error: Hz value must be greater than zero.");
+                return;
+            }
+            ConvertedTimeStep = 1.0 / Value;
+            WI.PhysicsTimings.CompartmentTimingCloth.TimeStep = ConvertedTimeStep;
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied TimeStep = " $ string(ConvertedTimeStep) $ " (from " $ string(Value) $ " Hz) to CompartmentTimingCloth.");
+        }
+        else if (PropertyName == "maxsubsteps")
+        {
+            WI.PhysicsTimings.CompartmentTimingCloth.MaxSubSteps = int(Value);
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied MaxSubSteps = " $ string(int(Value)) $ " to CompartmentTimingCloth.");
+        }
+    }
+    else if (TimingCategory == "softbody" || TimingCategory == "compartmenttimingsoftbody")
+    {
+        if (PropertyName == "bfixedtimestep")
+        {
+            WI.PhysicsTimings.CompartmentTimingSoftBody.bFixedTimeStep = (Value != 0);
+            bIsPropertyRecognised = true;
+            boolString = WI.PhysicsTimings.CompartmentTimingSoftBody.bFixedTimeStep ? "true" : "false";
+            ClientMessage("Applied bFixedTimeStep = " $ boolString $ " to CompartmentTimingSoftBody.");
+        }
+        else if (PropertyName == "timestep")
+        {
+            if (Value <= 0)
+            {
+                ClientMessage("Error: Hz value must be greater than zero.");
+                return;
+            }
+            ConvertedTimeStep = 1.0 / Value;
+            WI.PhysicsTimings.CompartmentTimingSoftBody.TimeStep = ConvertedTimeStep;
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied TimeStep = " $ string(ConvertedTimeStep) $ " (from " $ string(Value) $ " Hz) to CompartmentTimingSoftBody.");
+        }
+        else if (PropertyName == "maxsubsteps")
+        {
+            WI.PhysicsTimings.CompartmentTimingSoftBody.MaxSubSteps = int(Value);
+            bIsPropertyRecognised = true;
+            ClientMessage("Applied MaxSubSteps = " $ string(int(Value)) $ " to CompartmentTimingSoftBody.");
+        }
+    }
+    else
+    {
+        ClientMessage("Timing category not recognised: " $ TimingCategory);
+        return;
+    }
+
+    if (!bIsPropertyRecognised)
+    {
+        ClientMessage("Property not recognised: " $ PropertyName);
+    }
+}
 
 // Ensures the helper proxy for the extended Actor class is initialised
 function EnsureHelperProxy()
@@ -2528,6 +2744,42 @@ exec function ViewClass(class<actor> aClass)
 		ViewSelf(false);
 }
 
+// Helper function to allow utilising the native functions in TdUIScene
+function TdUIScene GetActiveOrDefaultTdUIScene()
+{
+    local TdPlayerController PC;
+    local UIInteraction UICont;
+    local TdGameUISceneClient SceneClient;
+    local UIScene ActiveScene;
+    local TdUIScene UI;
+
+    // First, try to retrieve an active UIScene from the UI controller's SceneClient.
+    PC = TdPlayerController(Pawn.Controller);
+    if (PC != none)
+    {
+        UICont = LocalPlayer(PC.Player).ViewportClient.UIController;
+        if (UICont != none)
+        {
+            if (UICont.SceneClient != none)
+            {
+                SceneClient = TdGameUISceneClient(UICont.SceneClient);
+                if (SceneClient.ActiveScenes.Length > 0)
+                {
+                    ActiveScene = SceneClient.ActiveScenes[0];
+                    UI = TdUIScene(ActiveScene);
+                }
+            }
+        }
+    }
+    
+    // If no active scene was found, we load a dummy UIScene.
+    if (UI == none)
+    {
+        UI = TdUIScene(class'TdHUDContent'.static.GetUISceneByName('TdLoadIndicator'));
+    }
+    
+    return UI;
+}
 
 defaultproperties
 {
