@@ -775,6 +775,16 @@ function Tick(float DeltaTime)
         SaveLoad = new class'SaveLoadHandler';
     }
 
+    if (!bLoadedTimeFromSave)
+    {
+        SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
+        if (SavedTimeStr != "")
+        {
+            GameData.TimeAttackClock = float(SavedTimeStr);
+        }
+        bLoadedTimeFromSave = true;
+    }
+
     MapName = WorldInfo.GetMapName();
     
     // Make timer ignore time dilation
@@ -785,16 +795,6 @@ function Tick(float DeltaTime)
     else
     {
         RealDeltaTime = DeltaTime;
-    }
-    
-    if (!bLoadedTimeFromSave)
-    {
-        SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
-        if (SavedTimeStr != "")
-        {
-            GameData.TimeAttackClock = float(SavedTimeStr);
-        }
-        bLoadedTimeFromSave = true;
     }
 
     // Chapter 2-specific monitoring

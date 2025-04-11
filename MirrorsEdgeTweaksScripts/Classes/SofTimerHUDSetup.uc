@@ -10,31 +10,32 @@ class SofTimerHUDSetup extends TdPlayerController
     hidecategories(Navigation)
     implements(TdController);
 
-var SaveLoadHandler SaveLoad;
-var UIDataStore_TdGameData GameData;
+var bool bDifficultySceneOpen;
+var bool bTutorialAcceptTriggered;
 
 simulated event PostBeginPlay()
 {
     local GameInfo CurrentGame;
-
-    CurrentGame = WorldInfo.Game;
-
+    
     super.PostBeginPlay();
 
-    if (CurrentGame != None && WorldInfo.Game.IsA('TdMenuGameInfo'))
-    {
-        // for whatever reason we must delay these in order for it to be called...
-        SetTimer(0.005, true, 'CheckIntendedGameMode');
-        SetTimer(0.05, false, 'SofTimerMessage');
-    }
-    
-    SetTimer(0.001, false, 'SetupSofTimerHUD');
-    
     DefaultFOV = Class'TdPlayerCamera'.default.DefaultFOV;
     DesiredFOV = DefaultFOV;
     FOVAngle = DefaultFOV;
     FOVZoomRate = 0;
     ReactionTimeEnergy = ReactionTimeSpawnLevel;
+
+    CurrentGame = WorldInfo.Game;
+
+    // for whatever reason we must delay these via a timer in order for it to be called from PostBeginPlay
+    if (CurrentGame != None && WorldInfo.Game.IsA('TdMenuGameInfo'))
+    {
+        SetTimer(0.01613, true, 'CheckIntendedGameMode');
+        SetTimer(0.01613, true, 'CheckNewGameConfirmed');
+        SetTimer(0.05, false, 'SofTimerMessage');
+    }
+    
+    SetTimer(0.001, false, 'SetupSofTimerHUD'); // fallback in case we didn't access a game mode through the menu buttons
 }
 
 function SofTimerMessage()
@@ -44,6 +45,47 @@ function SofTimerMessage()
     ClientMessage("- \"toggletrainerhud\" | Trainer HUD: (disabled by default, has mutual exclusivity with the speedometer)");
     ClientMessage("- \"togglespeed\" | Speedometer: (disabled by default, has mutual exclusivity with the Trainer HUD)");
     ClientMessage("- \"togglemacrofeedback\" | Macro feedback messages: (disabled by default)");
+}
+
+// More robust check compared to CheckIntendedGameMode() since we need to be sure the player meant to
+// do new game before we go ahead with resetting the timer. This checks if we were in the
+// difficulty select screen and the disk save indicator appears after accepting
+function bool CheckNewGameConfirmed()
+{
+    local TdGameUISceneClient SceneClient;
+    local UIScene ActiveScene;
+    local TdUIScene_LoadIndicator IndicatorScene;
+    local TdHUD CurrentHUD;
+
+    SceneClient = TdGameUISceneClient(Class'UIRoot'.static.GetSceneClient());
+    if (SceneClient == None)
+        return false;
+
+    ActiveScene = SceneClient.GetActiveScene();
+
+    if (ActiveScene != None && ActiveScene.SceneTag == 'TdDifficultySettings')
+    {
+        if (!bDifficultySceneOpen)
+        {
+            bDifficultySceneOpen = true;
+        }
+
+        CurrentHUD = TdHUD(MyHUD);
+        if (CurrentHUD != None)
+        {
+            IndicatorScene = TdUIScene_LoadIndicator(CurrentHUD.DiskAccessIndicatorInstance);
+            if (IndicatorScene != None && IndicatorScene.bIsDiscAccess)
+            {
+                ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerTutorialHUD");
+            }
+        }
+
+        return true;
+    }
+
+    bDifficultySceneOpen = false;
+    bTutorialAcceptTriggered = false;
+    return false;
 }
 
 function CheckIntendedGameMode()
@@ -78,24 +120,17 @@ function CheckIntendedGameMode()
                         // Reset the counter so we don't process the same click again.
                         RemoteEvent.TriggerCount = 0;
                         
-                        if (RemoteEvent.EventName == 'NewGameButton_Clicked')
-                        {
-                            ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerTutorialHUD");
-                        }
-                        else if (RemoteEvent.EventName == 'LoadLevelButton_Clicked')
+                        if (RemoteEvent.EventName == 'LoadLevelButton_Clicked')
                         {
                             ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerSPHUD");
                         }
                         else if (RemoteEvent.EventName == 'LevelRaceButton_Clicked')
                         {
-                            ClientMessage("clicked!");
-                            ConsoleCommand("set TdSPTimeTrialGame HUDType TdTimeTrialHUD");
                             ConsoleCommand("set TdSPLevelRace HUDType TdSPLevelRaceHUD");
                         }
                         else if (RemoteEvent.EventName == 'TimeTrialOnlineButton_Clicked')
                         {
-                            ConsoleCommand("set TdSPTimeTrialGame HUDType TdTimeTrialHUD");
-                            ConsoleCommand("set TdSPLevelRace HUDType TdSPLevelRaceHUD");
+                            ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerTimeTrialHUD");
                         }
                     }
                 }
@@ -125,37 +160,19 @@ function SetupSofTimerHUD()
                 ConsoleCommand("set TdSPLevelRace HUDType TdSPLevelRaceHUD");
                 ConsoleCommand("RestartLevel");
             }
-            else
-            {
-                return;
-            }
         }
         else if (WorldInfo.Game.IsA('TdSPTimeTrialGame'))
         {
-            if (CurrentHUDName != "TdTimeTrialHUD")
+            if (CurrentHUDName != "SofTimerTimeTrialHUD")
             {
-                ConsoleCommand("set TdSPTimeTrialGame HUDType TdTimeTrialHUD");
-                ConsoleCommand("set TdSPTutorialGame HUDType TdTutorialHUD");
-                ConsoleCommand("set TdSPLevelRace HUDType TdSPLevelRaceHUD");
+                ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerTimeTrialHUD");
                 ConsoleCommand("RestartLevel");
-            }
-            else
-            {
-                return;
             }
         }
         else if (WorldInfo.Game.IsA('TdSPTutorialGame'))
         {
-            ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerSPHUD"); // avoids a second load when transitioning from training to story
-
-            if (SaveLoad == none)
-            {
-                SaveLoad = new class'SaveLoadHandler';
-            }
-
-            GameData.TimeAttackClock = 0;
-
-            SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
+            // avoids a second load when transitioning from training to story. todo: probably better to tie this to skip training button
+            ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerSPHUD");
 
             if (CurrentHUDName != "SofTimerTutorialHUD")
             {
@@ -170,19 +187,11 @@ function SetupSofTimerHUD()
                 ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerSPHUD");
                 ConsoleCommand("RestartLevel");
             }
-            else
-            {
-                return;
-            }
         }
         else if (WorldInfo.Game.IsA('TdMenuGameInfo'))
         {
-            return;
+            ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1056,Y=61)"); // default position of tt star rating hud if we're done with 69 stars
         }
-    }
-    else
-    {
-        return;
     }
 }
 

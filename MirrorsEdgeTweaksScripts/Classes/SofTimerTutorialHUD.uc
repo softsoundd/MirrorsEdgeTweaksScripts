@@ -30,12 +30,13 @@ event PostBeginPlay()
     {
         SkipTicks = 0;
     }
+
+    GameData.TimeAttackClock = 0;
 }
 
 function Tick(float DeltaTime)
 {
     local float RealDeltaTime;
-    local string SavedTimeStr;
     super.Tick(DeltaTime);
     
     if (SpeedrunController == none && PlayerOwner != none)
@@ -61,16 +62,6 @@ function Tick(float DeltaTime)
     if (SaveLoad == none)
     {
         SaveLoad = new class'SaveLoadHandler';
-    }
-    
-    if (!bLoadedTimeFromSave)
-    {
-        SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
-        if (SavedTimeStr != "")
-        {
-            GameData.TimeAttackClock = float(SavedTimeStr);
-        }
-        bLoadedTimeFromSave = true;
     }
     
     if (ShouldIncrementTimer())
