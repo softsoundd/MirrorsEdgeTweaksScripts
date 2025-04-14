@@ -77,27 +77,29 @@ var array<string>     DeclaredUnloadPackages_Convoy;    // Chapter 8 (Convoy_p)
 var array<string>     DeclaredUnloadPackages_Scraper;   // Chapter 9 (Scraper_p)
 
 // Trainer, macro, speed variables
-var vector CurrentLocation;
-var rotator CurrentRotation;
-var float PlayerSpeed;
-var vector ConvertedLocation, PlayerVelocity;
+var vector            CurrentLocation;
+var rotator           CurrentRotation;
+var float             PlayerSpeed;
+var vector            ConvertedLocation, PlayerVelocity;
 
-var float MaxVelocity, MaxHeight;
-var float LastMaxVelocityUpdateTime, LastMaxHeightUpdateTime;
-var float UpdateInterval;  // Update every 3 seconds
+var float             MaxVelocity, MaxHeight;
+var float             LastMaxVelocityUpdateTime, LastMaxHeightUpdateTime;
+var float             UpdateInterval;  // Update every 3 seconds
 
-var float MacroStartTime;
-var bool bIsMacroTimerActive;
-var float MacroFinalElapsedTime;
-var name CurrentMacroType;
+var float             MacroStartTime;
+var bool              bIsMacroTimerActive;
+var float             MacroFinalElapsedTime;
+var name              CurrentMacroType;
 
-var string TrainerHUDMessageText;
-var float TrainerHUDMessageDisplayTime;
-var float TrainerHUDMessageDuration;
+var string            TrainerHUDMessageText;
+var float             TrainerHUDMessageDisplayTime;
+var float             TrainerHUDMessageDuration;
 
-var bool ShowSpeed;
-var bool ShowTrainerHUDItems;
-var bool ShowMacroFeedback;
+var bool              ShowSpeed;
+var bool              ShowTrainerHUDItems;
+var bool              ShowMacroFeedback;
+
+var vector            FullEffectColor; // Tint during reaction time
 
 
 function PreBeginPlay()
@@ -142,6 +144,8 @@ event PostBeginPlay()
     // DOF breaks with SofTimer and makes the boat chapter annoying to play - disable it
     ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
 
+    FullEffectColor = vect(1.0, 1.15, 1.6); // Reaction time filter colour
+
     MapName = WorldInfo.GetMapName();
     
     // On spawn, skip the next tick to avoid the extra clamped DeltaTime
@@ -171,7 +175,7 @@ event PostBeginPlay()
     if (MapName == "Edge_p")
     {
         bFinalTimeLocked = false;
-        Chapter9CompleteMarker = "AnyPercentInProgress";
+        Chapter9CompleteMarker = "RunInProgress";
         SaveLoad.SaveData("FinalTimeLocked", "false");
         SaveLoad.SaveData("AfterElevatorCrashTriggered", "false");
         SaveLoad.SaveData("MallUnloadRemoved", "false");
@@ -495,6 +499,8 @@ event PostBeginPlay()
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Spt");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Aud");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Lgts"); // fire end
+    DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Spt"); // bev elev start
+    DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Aud"); // bev elev end
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Out_Bac"); // vents start (inbounds)
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Art");
@@ -502,15 +508,9 @@ event PostBeginPlay()
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Aud");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_LW");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Lgts");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Buildings");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Slc");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Spt");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Aud");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Plaza_Bac");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Bac");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Bac2"); // vents end (inbounds)
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Spt"); // bev elev start
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Aud"); // bev elev end
     DeclaredLoadPackages_Scraper.AddItem("Scraper_OnlyTower"); // video surveillance start
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Lgts");
     DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Spt");
@@ -755,19 +755,24 @@ function Tick(float DeltaTime)
     local string MapName;
     local LevelStreaming LS;
     local bool bFoundUnload;
+    local TdPlayerCamera PlayerCam;
+    local float VisualAlpha;
+    local float FadeInStart, FadeOutEnd;
+    local float Energy;
+    local float FadeInAlpha, FadeOutAlpha;
 
     super.Tick(DeltaTime);
-
-    if (SpeedrunController == none && PlayerOwner != none)
-    {
-        SpeedrunController = TdPlayerController(PlayerOwner);
-    }
 
     // Skip timer update if within the skip period
     if (SkipTicks > 0)
     {
         SkipTicks--;
         return;
+    }
+
+    if (SpeedrunController == none && PlayerOwner != none)
+    {
+        SpeedrunController = TdPlayerController(PlayerOwner);
     }
 
     if (SaveLoad == none)
@@ -892,6 +897,22 @@ function Tick(float DeltaTime)
     // Chapter 9-specific monitoring
     if (MapName == "Scraper_p")
     {
+        if (MonitorShardLevelLoadsAfterFirstElevator())
+        {
+            // We reached the lobby, add these loads as RTA
+            DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Buildings");
+            DeclaredLoadPackages_Scraper.AddItem("Scraper_Plaza_Bac");
+            DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Bac");
+            DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Bac2"); // vents end (inbounds)
+        }
+
+        if (MonitorShardLevelLoadsBevElevator())
+        {
+            // We are inside bev elevator (inbounds) - add these level loads back as LRT
+            RemovePackageIfPresent(DeclaredLoadPackages_Scraper, "Scraper_Duct-Roof_Spt");
+            RemovePackageIfPresent(DeclaredLoadPackages_Scraper, "Scraper_Duct-Roof_Aud");
+        }
+
         if (MonitorShardLevelUnloadsBeforeFinalElevator())
         {
             // We reached the rooftop snipers checkpoint - add these unloads as LRT
@@ -919,7 +940,7 @@ function Tick(float DeltaTime)
         if (!bFinalTimeLocked && CheckHeliInteractionComplete())
         {
             bFinalTimeLocked = true;
-            Chapter9CompleteMarker = "AnyPercentCompleted";
+            Chapter9CompleteMarker = "RunCompleted";
             SaveLoad.SaveData("FinalTimeLocked", "true");
         }
     }
@@ -933,6 +954,47 @@ function Tick(float DeltaTime)
     if (!bFinalTimeLocked && ShouldIncrementTimer())
     {
         GameData.TimeAttackClock += RealDeltaTime;
+    }
+
+    PlayerCam = TdPlayerCamera(TdPlayerController(PlayerOwner).PlayerCamera);
+
+    // Recreate reaction time blue filter since we have to disable the real one
+    FadeInStart = SpeedrunController.ReactionTimeFadeIn; // 90
+    FadeOutEnd = SpeedrunController.ReactionTimeFadeOut; // 20
+    Energy = SpeedrunController.ReactionTimeEnergy;
+
+    VisualAlpha = 0.0;
+
+    if (SpeedrunController.bReactionTime)
+    {
+        if (Energy <= 100.0 && Energy > FadeInStart)
+        {
+            // Fading in 100 to 90
+            FadeInAlpha = FClamp((100.0 - Energy) / (100.0 - FadeInStart), 0, 1);
+            VisualAlpha = FadeInAlpha;
+        }
+        else if (Energy <= FadeOutEnd && Energy > 0.0)
+        {
+            // Fading out 20 to 0
+            FadeOutAlpha = FClamp(Energy / FadeOutEnd, 0, 1);
+            VisualAlpha = FadeOutAlpha;
+        }
+        else if (Energy <= FadeInStart && Energy > FadeOutEnd)
+        {
+            // Fully tinted
+            VisualAlpha = 1.0;
+        }
+    }
+
+    // Apply RT blend
+    PlayerCam.ColorScale.X = Lerp(1.0, FullEffectColor.X, VisualAlpha);
+    PlayerCam.ColorScale.Y = Lerp(1.0, FullEffectColor.Y, VisualAlpha);
+    PlayerCam.ColorScale.Z = Lerp(1.0, FullEffectColor.Z, VisualAlpha);
+
+    if (bIsInZoomState)
+    {
+        // Zoom in state re-engages DOF, disabling it here
+        ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
     }
 }
 
@@ -958,18 +1020,6 @@ function bool ShouldIncrementTimer()
     {
         // Pause timer during loading level message (block while loading)
         if (IndicatorScene.bIsLoadingLevel)
-        {
-            return false;
-        }
-
-        // Pause timer while saving and paused
-        if (IndicatorScene.bIsDiscAccess && WorldInfo.Pauser != None)
-        {
-            return false;
-        }
-
-        // Pause timer while saving at end of level
-        if (IndicatorScene.bIsDiscAccess && IsLevelCompleted())
         {
             return false;
         }
@@ -1384,6 +1434,50 @@ function bool MonitorEnteredLoadingBay()
     return false;
 }
 
+function bool MonitorShardLevelLoadsAfterFirstElevator()
+{
+    local TdCheckpointManager CheckpointManager;
+    local string ActiveCheckpoint;
+    
+    if (GameData == none)
+    {
+        return false;
+    }
+    
+    CheckpointManager = GameData.CheckpointManager;
+    if (CheckpointManager == none)
+    {
+        return false;
+    }
+
+    ActiveCheckpoint = CheckpointManager.GetActiveCheckpoint();
+    
+    if (ActiveCheckpoint == "Lobby")
+    {
+        return true;
+    }
+    return false;
+}
+
+function bool MonitorShardLevelLoadsBevElevator()
+{
+    local Vector TargetLocation;
+    local float Distance;
+
+    if (SpeedrunController == None || SpeedrunController.Pawn == None)
+    {
+        return false;
+    }
+
+    TargetLocation = vect(-5407.70, 8570.85, 13261.15);
+    Distance = VSize(SpeedrunController.Pawn.Location - TargetLocation);
+
+    if (Distance < 200.0)
+    {
+        return true;
+    }
+}
+
 function bool MonitorShardLevelUnloadsBeforeFinalElevator()
 {
     local TdCheckpointManager CheckpointManager;
@@ -1498,11 +1592,11 @@ function bool CheckHeliInteractionComplete()
     return false;
 }
 
+// Disable reaction time blue filter otherwise we crash - we recreate the effect in the main tick function
 function ToggleReactionTime(bool toggle)
 {
-    if(EffectManager.ReactionTimeEffect != none)
+    if (EffectManager.ReactionTimeEffect != none)
     {
-        // The SofTimer HUD causes a crash when the blue RT filter is active while using RT - disabling here as a workaround
         EffectManager.bReactionTimeActivated = false;
     }
 }
@@ -1911,7 +2005,7 @@ defaultproperties
     TimerPos=(X=1000,Y=55)
     SplitPos=(X=1000,Y=88)
     SpeedPos=(X=1000,Y=625)
-    Chapter9CompleteMarker = "AnyPercentInProgress"
+    Chapter9CompleteMarker = "RunInProgress"
     bTimerVisible = true
     ShowSpeed = false;
     ShowTrainerHUDItems = false;

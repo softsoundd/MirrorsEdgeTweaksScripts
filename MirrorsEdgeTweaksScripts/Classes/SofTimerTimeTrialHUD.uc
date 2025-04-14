@@ -6,12 +6,6 @@ class SofTimerTimeTrialHUD extends TdTimeTrialHUD
 var SaveLoadHandler     SaveLoad;
 var UIDataStore_TdGameData GameData;
 var(HUDIcons) Vector2D RaceTimerPos;
-var(HUDIcons) Vector2D StarRatingPos;
-var(HUDIcons) float StarFadeTime;
-var(HUDIcons) float StarCompletedAlpha;
-var(HUDIcons) float StarFailedAlpha;
-var transient float StarRatingAlpha[3];
-var transient Texture2D Star;
 var TdPlayerController  SpeedrunController;
 
 var bool              bLoadedTimeFromSave;
@@ -42,6 +36,8 @@ var float TrainerHUDMessageDuration;
 var bool ShowTrainerHUDItems;
 var bool ShowMacroFeedback;
 
+var vector FullEffectColor; // Tint during reaction time
+
 event PostBeginPlay()
 {
     local DataStoreClient DataStoreManager;
@@ -51,14 +47,28 @@ event PostBeginPlay()
     super(TdHUD).PostBeginPlay();
     DataStoreManager = Class'UIInteraction'.static.GetDataStoreClient();
     GameData = UIDataStore_TdGameData(DataStoreManager.FindDataStore('TdGameData'));
-    CacheMeasurementUnitInfo();
-
-    MapName = WorldInfo.GetMapName();
 
     if (SaveLoad == none)
     {
         SaveLoad = new class'SaveLoadHandler';
     }
+
+    CacheMeasurementUnitInfo();
+
+    ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
+    ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
+
+    // Initialise the max values and timers
+    MaxVelocity = 0.0;
+    MaxHeight = 0.0;
+    LastMaxVelocityUpdateTime = WorldInfo.TimeSeconds;
+    LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
+    UpdateInterval = 3.0;
+
+    // DOF breaks with SofTimer and makes the boat chapter annoying to play - disable it
+    ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
+
+    MapName = WorldInfo.GetMapName();
 
     // Lock the final time once returning to main menu
     if (MapName == "TdMainMenu")
@@ -89,8 +99,13 @@ event PostBeginPlay()
         ConsoleCommand("set DOFAndBloomEffect BloomScale 0");
     }
 
+    if (EffectManager.ReactionTimeEffect != none)
+    {
+        EffectManager.bReactionTimeActivated = false;
+    }
+
     ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1000,Y=61)");
-    ConsoleCommand("PrepareRace");
+    //ConsoleCommand("PrepareRace");
 }
 
 function Tick(float DeltaTime)
@@ -98,6 +113,8 @@ function Tick(float DeltaTime)
     local float RealDeltaTime;
     local string SavedTimeStr;
     local string MapName;
+    local TdPlayerCamera PlayerCam;
+
     super.Tick(DeltaTime);
 
     if (SkipTicks > 0)
@@ -106,10 +123,14 @@ function Tick(float DeltaTime)
         return;
     }
 
-    
     if (SpeedrunController == none && PlayerOwner != none)
     {
         SpeedrunController = TdPlayerController(PlayerOwner);
+    }
+
+    if (SaveLoad == none)
+    {
+        SaveLoad = new class'SaveLoadHandler';
     }
     
     if (WorldInfo.TimeDilation > 0)
@@ -119,11 +140,6 @@ function Tick(float DeltaTime)
     else
     {
         RealDeltaTime = DeltaTime;
-    }
-    
-    if (SaveLoad == none)
-    {
-        SaveLoad = new class'SaveLoadHandler';
     }
 
     MapName = WorldInfo.GetMapName();
@@ -148,9 +164,23 @@ function Tick(float DeltaTime)
         }
     }
     
-    if (!bFinalTimeLocked && ShouldIncrementTimer())
+    if (!bFinalTimeLocked)
     {
         GameData.TimeAttackClock += RealDeltaTime;
+    }
+
+    PlayerCam = TdPlayerCamera(TdPlayerController(PlayerOwner).PlayerCamera);
+
+    // Recreate race end slow mo blue filter since we're disabling the reaction time effect
+    if (WorldInfo.TimeDilation < 1.0)
+    {
+        FullEffectColor = vect(1.0, 1.15, 1.6);
+        PlayerCam.ColorScale = FullEffectColor;
+    }
+    else
+    {
+        FullEffectColor = vect(1.0, 1.0, 1.0);
+        PlayerCam.ColorScale = FullEffectColor;
     }
 }
 
@@ -163,28 +193,6 @@ event Destroyed()
     SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
     
     super.Destroyed();
-}
-
-function bool ShouldIncrementTimer()
-{
-    local TdUIScene_LoadIndicator IndicatorScene;
-
-    IndicatorScene = TdUIScene_LoadIndicator(DiskAccessIndicatorInstance);
-
-    if (IndicatorScene != none)
-    {
-        if (IndicatorScene.bIsDiscAccess && WorldInfo.Pauser != None)
-        {
-            return false;
-        }
-
-        if (IndicatorScene.bIsDiscAccess)
-        {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 function bool CheckFinalTTCompletion()
@@ -308,11 +316,11 @@ function DrawTrainerItems()
     local TdPawn PlayerPawn;
     local float X, Y, ShadowOffset;
     local float RoundedX, RoundedY, RoundedZ;
-    local float RoundedSpeed, RoundedYaw, RoundedPitch;
+    local float RoundedYaw, RoundedPitch;
     local float RoundedMaxSpeed, RoundedMaxHeight, RoundedLastJumpZ, RoundedZDelta;
     local float Yaw, Pitch;
     local string YawText, PitchText;
-    local string HealthText, ReactionTimeEnergyText, MoveStateText, SpeedText;
+    local string HealthText, ReactionTimeEnergyText, MoveStateText;
     local string MaxVelocityText, LocationTextX, LocationTextY, LocationTextZ;
     local string MaxHeightText, LastJumpZText, ZDeltaText;
     local float MacroElapsedTime;
@@ -355,7 +363,6 @@ function DrawTrainerItems()
         RoundedX = RoundToTwoDecimals(ConvertedLocation.X);
         RoundedY = RoundToTwoDecimals(ConvertedLocation.Y);
         RoundedZ = RoundToTwoDecimals(ConvertedLocation.Z);
-        RoundedSpeed = RoundToTwoDecimals(PlayerSpeed);
         RoundedYaw = RoundToTwoDecimals(Yaw);
         RoundedPitch = RoundToTwoDecimals(Pitch);
         RoundedMaxSpeed = RoundToTwoDecimals(MaxVelocity);
@@ -368,7 +375,6 @@ function DrawTrainerItems()
         HealthText = "H = " $ int(PlayerHealth) $ "%";
         ReactionTimeEnergyText = "RT = " $ int(ReactionTimeEnergy) $ "%";
         MoveStateText = "MS = " $ (Left(string(MoveState), 5) == "MOVE_" ? Mid(string(MoveState), 5) : string(MoveState));
-        SpeedText = "V = " $ FormatFloat(RoundedSpeed) $ " km/h";
         MaxVelocityText = "VT = " $ FormatFloat(RoundedMaxSpeed) $ " km/h";
         LocationTextX = "X = " $ FormatFloat(RoundedX);
         LocationTextY = "Y = " $ FormatFloat(RoundedY);
@@ -386,10 +392,9 @@ function DrawTrainerItems()
 
         if (ShowTrainerHUDItems)
         {
-            DrawTextWithShadow(HealthText, X, Y - 16 * 25.0, ShadowOffset);
-            DrawTextWithShadow(ReactionTimeEnergyText, X, Y - 15 * 25.0, ShadowOffset);
-            DrawTextWithShadow(MoveStateText, X, Y - 14 * 25.0, ShadowOffset);
-            DrawTextWithShadow(SpeedText, X, Y - 12 * 25.0, ShadowOffset);
+            DrawTextWithShadow(HealthText, X, Y - 15 * 25.0, ShadowOffset);
+            DrawTextWithShadow(ReactionTimeEnergyText, X, Y - 14 * 25.0, ShadowOffset);
+            DrawTextWithShadow(MoveStateText, X, Y - 13 * 25.0, ShadowOffset);
             DrawTextWithShadow(MaxVelocityText, X, Y - 11 * 25.0, ShadowOffset);
             DrawTextWithShadow(LocationTextX, X, Y - 9 * 25.0, ShadowOffset);
             DrawTextWithShadow(LocationTextY, X, Y - 8 * 25.0, ShadowOffset);
@@ -463,9 +468,6 @@ exec function ToggleMacroFeedback()
 defaultproperties
 {
     RaceTimerPos=(X=1000,Y=55)
-    StarFadeTime=0.75
-    StarCompletedAlpha=255
-    StarFailedAlpha=60
     ShardTwoCompleteMarker = "69StarsInProgress"
     ShowTrainerHUDItems = false;
     ShowMacroFeedback = false;

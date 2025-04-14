@@ -25,10 +25,12 @@ event PostBeginPlay()
     if (MapName != "TdMainMenu")
     {
         SkipTicks = 3;
+        ConsoleCommand("set DOFAndBloomEffect BloomScale 0.1");
     }
     else
     {
         SkipTicks = 0;
+        ConsoleCommand("set DOFAndBloomEffect BloomScale 0");
     }
 
     GameData.TimeAttackClock = 0;
@@ -38,16 +40,16 @@ function Tick(float DeltaTime)
 {
     local float RealDeltaTime;
     super.Tick(DeltaTime);
-    
-    if (SpeedrunController == none && PlayerOwner != none)
-    {
-        SpeedrunController = TdPlayerController(PlayerOwner);
-    }
 
     if (SkipTicks > 0)
     {
         SkipTicks--;
         return;
+    }
+    
+    if (SpeedrunController == none && PlayerOwner != none)
+    {
+        SpeedrunController = TdPlayerController(PlayerOwner);
     }
     
     if (WorldInfo.TimeDilation > 0)
@@ -95,16 +97,6 @@ function bool ShouldIncrementTimer()
     if (IndicatorScene != none)
     {
         if (IndicatorScene != none && IndicatorScene.bIsLoadingLevel)
-        {
-            return false;
-        }
-
-        if (IndicatorScene.bIsDiscAccess && WorldInfo.Pauser != None)
-        {
-            return false;
-        }
-
-        if (IndicatorScene.bIsDiscAccess && IsLevelCompleted())
         {
             return false;
         }
