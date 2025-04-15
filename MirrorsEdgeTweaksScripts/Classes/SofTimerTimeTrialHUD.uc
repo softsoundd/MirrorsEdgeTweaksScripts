@@ -36,7 +36,6 @@ var float TrainerHUDMessageDuration;
 var bool ShowTrainerHUDItems;
 var bool ShowMacroFeedback;
 
-var vector FullEffectColor; // Tint during reaction time
 
 event PostBeginPlay()
 {
@@ -65,9 +64,6 @@ event PostBeginPlay()
     LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
     UpdateInterval = 3.0;
 
-    // DOF breaks with SofTimer and makes the boat chapter annoying to play - disable it
-    ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
-
     MapName = WorldInfo.GetMapName();
 
     // Lock the final time once returning to main menu
@@ -91,17 +87,10 @@ event PostBeginPlay()
     if (MapName != "TdMainMenu")
     {
         SkipTicks = 3;
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0.1");
     }
     else
     {
         SkipTicks = 0;
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0");
-    }
-
-    if (EffectManager.ReactionTimeEffect != none)
-    {
-        EffectManager.bReactionTimeActivated = false;
     }
 
     ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1000,Y=61)");
@@ -113,9 +102,11 @@ function Tick(float DeltaTime)
     local float RealDeltaTime;
     local string SavedTimeStr;
     local string MapName;
-    local TdPlayerCamera PlayerCam;
 
-    super.Tick(DeltaTime);
+    super(TdHUD).Tick(DeltaTime);
+
+    // This stops HUD/post process effects breaking
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 
     if (SkipTicks > 0)
     {
@@ -167,20 +158,6 @@ function Tick(float DeltaTime)
     if (!bFinalTimeLocked)
     {
         GameData.TimeAttackClock += RealDeltaTime;
-    }
-
-    PlayerCam = TdPlayerCamera(TdPlayerController(PlayerOwner).PlayerCamera);
-
-    // Recreate race end slow mo blue filter since we're disabling the reaction time effect
-    if (WorldInfo.TimeDilation < 1.0)
-    {
-        FullEffectColor = vect(1.0, 1.15, 1.6);
-        PlayerCam.ColorScale = FullEffectColor;
-    }
-    else
-    {
-        FullEffectColor = vect(1.0, 1.0, 1.0);
-        PlayerCam.ColorScale = FullEffectColor;
     }
 }
 

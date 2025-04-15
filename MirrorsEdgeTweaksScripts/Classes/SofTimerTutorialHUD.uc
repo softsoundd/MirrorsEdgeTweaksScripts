@@ -3,7 +3,7 @@ class SofTimerTutorialHUD extends TdTutorialHUD
     config(Game)
     hidecategories(Navigation);
 
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandler        SaveLoad;
 var UIDataStore_TdGameData GameData;
 var(HUDIcons) Vector2D     TimerPos;
 var TdPlayerController     SpeedrunController;
@@ -25,12 +25,10 @@ event PostBeginPlay()
     if (MapName != "TdMainMenu")
     {
         SkipTicks = 3;
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0.1");
     }
     else
     {
         SkipTicks = 0;
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0");
     }
 
     GameData.TimeAttackClock = 0;
@@ -39,7 +37,10 @@ event PostBeginPlay()
 function Tick(float DeltaTime)
 {
     local float RealDeltaTime;
-    super.Tick(DeltaTime);
+    
+    super(TdHUD).Tick(DeltaTime);
+
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 
     if (SkipTicks > 0)
     {

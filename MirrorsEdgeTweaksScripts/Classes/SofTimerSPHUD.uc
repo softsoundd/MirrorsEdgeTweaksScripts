@@ -99,8 +99,6 @@ var bool              ShowSpeed;
 var bool              ShowTrainerHUDItems;
 var bool              ShowMacroFeedback;
 
-var vector            FullEffectColor; // Tint during reaction time
-
 
 function PreBeginPlay()
 {
@@ -141,24 +139,16 @@ event PostBeginPlay()
     LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
     UpdateInterval = 3.0;
 
-    // DOF breaks with SofTimer and makes the boat chapter annoying to play - disable it
-    ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
-
-    FullEffectColor = vect(1.0, 1.15, 1.6); // Reaction time filter colour
-
     MapName = WorldInfo.GetMapName();
     
     // On spawn, skip the next tick to avoid the extra clamped DeltaTime
     if (MapName != "TdMainMenu")
     {
         SkipTicks = 3;
-        // Bloom is a bit more intense than usual with SofTimer - tame it back down to something comparable to default
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0.1");
     }
     else
     {
         SkipTicks = 0;
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0");
     }
 
     // Lock the final time once returning to main menu
@@ -741,10 +731,6 @@ function PlayerOwnerRestart()
 {
     super.PlayerOwnerRestart();
     SkipTicks = 3;
-    if(EffectManager.DOFAndBloomPP != none)
-    {
-        ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
-    }
 }
 
 // Tick: Main loop updates timer and saves state when needed
@@ -755,13 +741,11 @@ function Tick(float DeltaTime)
     local string MapName;
     local LevelStreaming LS;
     local bool bFoundUnload;
-    local TdPlayerCamera PlayerCam;
-    local float VisualAlpha;
-    local float FadeInStart, FadeOutEnd;
-    local float Energy;
-    local float FadeInAlpha, FadeOutAlpha;
 
-    super.Tick(DeltaTime);
+    super(TdHUD).Tick(DeltaTime);
+
+    // This stops HUD/post process effects breaking
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 
     // Skip timer update if within the skip period
     if (SkipTicks > 0)
@@ -954,47 +938,6 @@ function Tick(float DeltaTime)
     if (!bFinalTimeLocked && ShouldIncrementTimer())
     {
         GameData.TimeAttackClock += RealDeltaTime;
-    }
-
-    PlayerCam = TdPlayerCamera(TdPlayerController(PlayerOwner).PlayerCamera);
-
-    // Recreate reaction time blue filter since we have to disable the real one
-    FadeInStart = SpeedrunController.ReactionTimeFadeIn; // 90
-    FadeOutEnd = SpeedrunController.ReactionTimeFadeOut; // 20
-    Energy = SpeedrunController.ReactionTimeEnergy;
-
-    VisualAlpha = 0.0;
-
-    if (SpeedrunController.bReactionTime)
-    {
-        if (Energy <= 100.0 && Energy > FadeInStart)
-        {
-            // Fading in 100 to 90
-            FadeInAlpha = FClamp((100.0 - Energy) / (100.0 - FadeInStart), 0, 1);
-            VisualAlpha = FadeInAlpha;
-        }
-        else if (Energy <= FadeOutEnd && Energy > 0.0)
-        {
-            // Fading out 20 to 0
-            FadeOutAlpha = FClamp(Energy / FadeOutEnd, 0, 1);
-            VisualAlpha = FadeOutAlpha;
-        }
-        else if (Energy <= FadeInStart && Energy > FadeOutEnd)
-        {
-            // Fully tinted
-            VisualAlpha = 1.0;
-        }
-    }
-
-    // Apply RT blend
-    PlayerCam.ColorScale.X = Lerp(1.0, FullEffectColor.X, VisualAlpha);
-    PlayerCam.ColorScale.Y = Lerp(1.0, FullEffectColor.Y, VisualAlpha);
-    PlayerCam.ColorScale.Z = Lerp(1.0, FullEffectColor.Z, VisualAlpha);
-
-    if (bIsInZoomState)
-    {
-        // Zoom in state re-engages DOF, disabling it here
-        ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
     }
 }
 
@@ -1590,15 +1533,6 @@ function bool CheckHeliInteractionComplete()
     }
 
     return false;
-}
-
-// Disable reaction time blue filter otherwise we crash - we recreate the effect in the main tick function
-function ToggleReactionTime(bool toggle)
-{
-    if (EffectManager.ReactionTimeEffect != none)
-    {
-        EffectManager.bReactionTimeActivated = false;
-    }
 }
 
 // Command for toggling timer visibility

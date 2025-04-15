@@ -92,7 +92,6 @@ function float UpdateMaxValue(float CurrentValue, float NewValue, out float Last
 event PostBeginPlay()
 {
     local string SerialisedVector;
-    local string MapName;
 
     super.PostBeginPlay();
 
@@ -117,20 +116,14 @@ event PostBeginPlay()
     LastMaxVelocityUpdateTime = WorldInfo.TimeSeconds;
     LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
     UpdateInterval = 3.0;
+}
 
-    ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
+function Tick(float DeltaTime)
+{
+    super(TdHUD).Tick(DeltaTime);
 
-    MapName = WorldInfo.GetMapName();
-
-    if (MapName != "TdMainMenu")
-    {
-        // Bloom is a bit more intense than usual with SofTimer - tame it back down to something comparable to default
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0.1");
-    }
-    else
-    {
-        ConsoleCommand("set DOFAndBloomEffect BloomScale 0");
-    }
+    // This stops HUD/post process effects breaking
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 }
 
 function DrawLivingHUD()
@@ -346,24 +339,6 @@ exec function ToggleHUDMessages()
 {
     ShowTrainerHUDMessages = !ShowTrainerHUDMessages;
     SaveLoad.SaveData("ShowTrainerHUDMessages", string(ShowTrainerHUDMessages));
-}
-
-function ToggleReactionTime(bool toggle)
-{
-    if(EffectManager.ReactionTimeEffect != none)
-    {
-        // The trainer HUD causes a crash when the blue RT filter is active while using RT - disabling here as a workaround
-        EffectManager.bReactionTimeActivated = false;
-    }
-}
-
-function PlayerOwnerRestart()
-{
-    super.PlayerOwnerRestart();
-    if(EffectManager.DOFAndBloomPP != none)
-    {
-        ConsoleCommand("set DOFEffect bAutoFocus false | set DOFEffect MaxFarBlurAmount 0");
-    }
 }
 
 defaultproperties

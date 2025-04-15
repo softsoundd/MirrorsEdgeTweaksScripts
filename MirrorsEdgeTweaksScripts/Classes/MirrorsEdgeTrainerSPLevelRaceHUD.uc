@@ -81,14 +81,22 @@ function DrawTextWithShadow(string Text, float X, float Y, float ShadowOffset)
     
     // Draw shadow
     Canvas.SetPos(X + ShadowOffset, Y + ShadowOffset);
-    Canvas.DrawText(Text, False, 0.70, 0.70);
+    Canvas.DrawText(Text, False, 0.60, 0.60);
 
     // Set actual text color
     Canvas.SetDrawColor(255, 255, 255, 255);
     
     // Draw actual text
     Canvas.SetPos(X, Y);
-    Canvas.DrawText(Text, False, 0.70, 0.70);
+    Canvas.DrawText(Text, False, 0.60, 0.60);
+}
+
+function Tick(float DeltaTime)
+{
+    super(TdHUD).Tick(DeltaTime);
+
+    // This stops HUD/post process effects breaking
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 }
 
 function DrawLivingHUD()
@@ -111,7 +119,6 @@ function DrawLivingHUD()
     local string LoadedHUDItems;
     local string LoadedHUDMessages;
 
-    // Initialise SaveLoadHandler
     if (SaveLoad == None)
     {
         SaveLoad = new class'SaveLoadHandler';
