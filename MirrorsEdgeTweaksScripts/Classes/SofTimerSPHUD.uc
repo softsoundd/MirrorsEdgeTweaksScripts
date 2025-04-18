@@ -21,15 +21,6 @@ var int               SkipTicks;
 var bool              bLevelCompleted;
 var float             LastSplitTime;
 
-// Chapter 2 (Stormdrain) variables.
-var bool              bSDGateButtonPressed;
-var bool              bSDGateLock;         
-var bool              bSDNonGateLock;      
-var float             LastSDGateLoadTime;  
-var float             LastNonSDLoadTime;
-var bool              bSDDeclaredUnloadActive;
-var float             LastSDDeclaredUnloadTime;
-
 // Chapter 4 (Subway) variables
 var bool              bAfterElevatorCrash;
 
@@ -48,6 +39,9 @@ var string            Chapter9CompleteMarker;
 // Any level NOT declared here is assumed to be LRT and is caught by IsLoadingLevel in the ticking function.
 var array<string>     DeclaredLoadPackages_Edge;      // Prologue (Edge_p)
 var array<string>     DeclaredLoadPackages_Escape;    // Chapter 1 (Escape_p)
+// For Chapter 2 (Stormdrain_p) we use two lists: one for gate packages and one for non–gate packages.
+var array<string>     DeclaredLoadPackages_StormdrainGate;
+var array<string>     DeclaredLoadPackages_Stormdrain;
 var array<string>     DeclaredLoadPackages_Cranes;    // Chapter 3 (Cranes_p)
 var array<string>     DeclaredLoadPackages_Subway;    // Chapter 4 (Subway_p)
 var array<string>     DeclaredLoadPackages_Mall;      // Chapter 5 (Mall_p)
@@ -57,17 +51,11 @@ var array<string>     DeclaredLoadPackages_Convoy;    // Chapter 8 (Convoy_p)
 var array<string>     DeclaredLoadPackages_Scraper;   // Chapter 9 (Scraper_p)
 var array<string>     DeclaredLoadPackages_TdMainMenu;
 
-// For Chapter 2 (Stormdrain_p) we use two lists: one for gate packages and one for non–gate packages.
-var array<string>     SDGatePackages;
-var array<string>     SDNonGatePackages;
-
-// For Stormdrain, we might need unload package lists too
-var array<string>     SDGateUnloadPackages;
-var array<string>     SDNonGateUnloadPackages;
-
 // These arrays list the streaming level package names that get unloaded and should pause the timer (LRT).
 var array<string>     DeclaredUnloadPackages_Edge;      // Prologue (Edge_p)
 var array<string>     DeclaredUnloadPackages_Escape;    // Chapter 1 (Escape_p)
+var array<string>     DeclaredUnloadPackages_StormdrainGate;
+var array<string>     DeclaredUnloadPackages_Stormdrain;
 var array<string>     DeclaredUnloadPackages_Cranes;    // Chapter 3 (Cranes_p)
 var array<string>     DeclaredUnloadPackages_Subway;    // Chapter 4 (Subway_p)
 var array<string>     DeclaredUnloadPackages_Mall;      // Chapter 5 (Mall_p)
@@ -139,6 +127,16 @@ event PostBeginPlay()
     LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
     UpdateInterval = 3.0;
 
+    TimerState = SaveLoad.LoadData("TimerHUDVisible");
+    if (TimerState != "")
+    {
+        bTimerVisible = (TimerState == "true");
+    }
+    else
+    {
+        bTimerVisible = true;
+    }
+
     MapName = WorldInfo.GetMapName();
     
     // On spawn, skip the next tick to avoid the extra clamped DeltaTime
@@ -151,416 +149,248 @@ event PostBeginPlay()
         SkipTicks = 0;
     }
 
-    // Lock the final time once returning to main menu
-    if (MapName == "TdMainMenu")
-    {
-        FinalTimeFlag = SaveLoad.LoadData("FinalTimeLocked");
-        if (FinalTimeFlag == "true")
-        {
-            bFinalTimeLocked = true;
-        }
-    }
+    // --- Initialise level packages for each chapter. Declared Loads are generally RTA, and declared unloads are generally LRT ---
 
-    // Reset any monitoring from previous runs
     if (MapName == "Edge_p")
     {
+        // Reset any monitoring from previous runs
         bFinalTimeLocked = false;
         Chapter9CompleteMarker = "RunInProgress";
         SaveLoad.SaveData("FinalTimeLocked", "false");
         SaveLoad.SaveData("AfterElevatorCrashTriggered", "false");
         SaveLoad.SaveData("MallUnloadRemoved", "false");
         SaveLoad.SaveData("LoadingBayEntered", "false");
-    }
 
-    TimerState = SaveLoad.LoadData("TimerHUDVisible");
-    if (TimerState != "")
-    {
-        bTimerVisible = (TimerState == "true");
+        // Prologue packages (Edge_p)   
+        DeclaredLoadPackages_Edge.AddItem("Edge_Pt2"); // vent start
+        DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Art");
+        DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Lw");
+        DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Bac");
+        DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Spt");
+        DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Aud"); // vent end
     }
-    else
-    {
-        bTimerVisible = true;
-    }
-
-    // --- Initialise declared packages for each chapter (these are RTA levels) --- 
-
-    // Prologue (Edge_p)   
-    DeclaredLoadPackages_Edge.AddItem("Edge_Pt2"); // vent start
-    DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Art");
-    DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Lw");
-    DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Bac");
-    DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Spt");
-    DeclaredLoadPackages_Edge.AddItem("Edge_Pt2_Aud"); // vent end
 
     // Chapter 1 (Escape_p)
-    DeclaredLoadPackages_Escape.AddItem("Escape_Off-R1_Spt"); // after Kate cutscene
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1"); // ch1 skip start
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1_Art");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1_Aud");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1_Bac");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1_Spt");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1_LW");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1_Lgts"); // ch1 skip end
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1-R2_Slc"); // landing pad start
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1-R2_Aud");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1-St1_Spt");
-    DeclaredLoadPackages_Escape.AddItem("Escape_R1-R2_Slc_lgts");
-    DeclaredLoadPackages_Escape.AddItem("Edge_SL01_Mus"); // landing pad end
-    DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Slc"); // plaza elev start
-    DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Spt");
-    DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Aud");
-    DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Slc_Lgts"); // plaza elev end
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza"); // plaza start
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Spt");
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Art");
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Aud");
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_LW");
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Bac");
-    DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Lgts"); // plaza end
+    else if (MapName == "Escape_p")
+    {
+        DeclaredLoadPackages_Escape.AddItem("Escape_Off-R1_Spt"); // after Kate cutscene
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1"); // ch1 skip start
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1_Art");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1_Aud");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1_Bac");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1_Spt");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1_LW");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1_Lgts"); // ch1 skip end
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1-R2_Slc"); // landing pad start
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1-R2_Aud");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1-St1_Spt");
+        DeclaredLoadPackages_Escape.AddItem("Escape_R1-R2_Slc_lgts");
+        DeclaredLoadPackages_Escape.AddItem("Edge_SL01_Mus"); // landing pad end
+        DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Slc"); // plaza elev start
+        DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Spt");
+        DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Aud");
+        DeclaredLoadPackages_Escape.AddItem("Escape_St1-Plaza_Slc_Lgts"); // plaza elev end
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza"); // plaza start
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Spt");
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Art");
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Aud");
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_LW");
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Bac");
+        DeclaredLoadPackages_Escape.AddItem("Escape_Plaza_Lgts"); // plaza end
+
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro"); // office elev start
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Art");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Aud");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Bac");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_LW");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Spt");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Lgts"); // office elev end
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Off_Bac"); // plaza elev start
+        DeclaredUnloadPackages_Escape.AddItem("Escape_Off-R1_Bac");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Art");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Aud");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Bac");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Spt");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1_LW");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Lgts");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1-R2_Slc");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1-R2_Aud");
+        DeclaredUnloadPackages_Escape.AddItem("Escape_R1-R2_Slc_lgts");
+        DeclaredUnloadPackages_Escape.AddItem("Edge_SB01_Mus"); // plaza elev end
+    }
 
     // Stormdrain (Chapter 2)
-    // Gate packages switch to LRT if we pressed either gate button before levels finished loading
-    if (SDGatePackages.Length == 0)
+    else if (MapName == "Stormdrain_p")
     {
-        SDGatePackages.AddItem("Stormdrain_StdP"); // sd gate 1 start
-        SDGatePackages.AddItem("Stormdrain_StdP_Art");
-        SDGatePackages.AddItem("Stormdrain_StdP_Aud");
-        SDGatePackages.AddItem("Stormdrain_StdP_Bac");
-        SDGatePackages.AddItem("Stormdrain_StdP_Spt");
-        SDGatePackages.AddItem("Stormdrain_StdP_Lgts");
-        SDGatePackages.AddItem("Stormdrain_StdP-StdE_slc");
-        SDGatePackages.AddItem("Stormdrain_StdP-StdE_slc_Spt");
-        SDGatePackages.AddItem("Stormdrain_StdP-StdE_Aud");
-        SDGatePackages.AddItem("Stormdrain_StdP-StdE_slc_Lgts"); // sd gate 1 end
-        SDGatePackages.AddItem("Stormdrain_StdE"); // sd gate 2 end
-        SDGatePackages.AddItem("Stormdrain_StdE_Art");
-        SDGatePackages.AddItem("Stormdrain_StdE_Aud");
-        SDGatePackages.AddItem("Stormdrain_StdE_Bac");
-        SDGatePackages.AddItem("Stormdrain_StdE_Spt");
-        SDGatePackages.AddItem("Stormdrain_StdE_Lgts");
-        SDGatePackages.AddItem("Stormdrain_StdE-Out_Blding_slc");
-        SDGatePackages.AddItem("Stormdrain_StdE_Roof_Bac");
-        SDGatePackages.AddItem("Stormdrain_bac");
-        SDGatePackages.AddItem("Stormdrain_Std_StdE_Bac");
-        SDGatePackages.AddItem("Stormdrain_StdE_Roof_boss_Bac");
-        SDGatePackages.AddItem("Stormdrain_Ext_Lgts"); 
-        SDGatePackages.AddItem("Stormdrain_SB02_Mus"); // sd gate 2 end
-    }
-    // All other normal packages
-    if (SDNonGatePackages.Length == 0)
-    {
-        SDNonGatePackages.AddItem("Stormdrain_Std"); // sluice start (inbounds)
-        SDNonGatePackages.AddItem("Stormdrain_Std_Art");
-        SDNonGatePackages.AddItem("Stormdrain_Std_Aud");
-        SDNonGatePackages.AddItem("Stormdrain_Std_Bac");
-        SDNonGatePackages.AddItem("Stormdrain_Std_Spt");
-        SDNonGatePackages.AddItem("Stormdrain_Std_Lgts");
-        SDNonGatePackages.AddItem("Stormdrain_Std-StdP_Slc");
-        SDNonGatePackages.AddItem("Stormdrain_Std-StdP_Slc_Spt");
-        SDNonGatePackages.AddItem("Stormdrain_Std-StdP_Aud");
-        SDNonGatePackages.AddItem("Stormdrain_Std-StdP_slc_Lgts"); // sluice end (inbounds)
-        SDNonGatePackages.AddItem("Stormdrain_SL01_Mus"); // sd zipline
-        SDNonGatePackages.AddItem("Stormdrain_StdE-Out_slc_Spt"); // sd gate 2 close start
-        SDNonGatePackages.AddItem("Stormdrain_StdE-Out_Aud");
-        SDNonGatePackages.AddItem("Stormdrain_StdE-Out_slc_lgts"); // sd gate 2 close end
-        SDNonGatePackages.AddItem("Stormdrain_boss_Slc"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
-        SDNonGatePackages.AddItem("Stormdrain_boss_Slc_spt"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
-        SDNonGatePackages.AddItem("Stormdrain_boss_Slc_Lgts"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
-        SDNonGatePackages.AddItem("Stormdrain_boss"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
-        SDNonGatePackages.AddItem("Stormdrain_boss_Aud"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
+        // Gate packages are RTA but switch to LRT if we pressed either gate button before levels finished loading
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP"); // sd gate 1 start
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Art");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Aud");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Bac");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Spt");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Lgts");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP-StdE_slc");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP-StdE_slc_Spt");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP-StdE_Aud");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdP-StdE_slc_Lgts"); // sd gate 1 end
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE"); // sd gate 2 start
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Art");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Aud");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Bac");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Spt");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Lgts");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE-Out_Blding_slc");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Roof_Bac");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_bac");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_Std_StdE_Bac");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Roof_boss_Bac");
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_Ext_Lgts"); 
+        DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_SB02_Mus"); // sd gate 2 end
+        
+        // All other normal Stormdrain packages
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std"); // sluice start (inbounds)
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std_Art");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std_Aud");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std_Bac");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std_Spt");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std_Lgts");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std-StdP_Slc");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std-StdP_Slc_Spt");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std-StdP_Aud");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std-StdP_slc_Lgts"); // sluice end (inbounds)
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_SL01_Mus"); // sd zipline
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_StdE-Out_slc_Spt"); // sd gate 2 close start
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_StdE-Out_Aud");
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_StdE-Out_slc_lgts"); // sd gate 2 close end
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_boss_Slc"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_boss_Slc_spt"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_boss_Slc_Lgts"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_boss"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
+        DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_boss_Aud"); // part of first JK elevator (we remove this if MonitorJKLevelLoadsAfterFirstElevator is true)
+
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdP-StdE_slc_Spt"); // sd roof elev start
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdE");
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdE_Art");
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdE_Aud"); // sd roof elev end
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdE-Out_Blding_slc"); // jk elev start
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_Roof");
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_Roof_Art");
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_Roof_Bac");
+        DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_Roof_spt"); // jk elev end
     }
 
     // Chapter 3 (Cranes_p)
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off"); // first door start (inbounds)
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Art");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Aud");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Bac");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Spt");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Ropeburn_CS");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Lgts"); // first door end (inbounds)
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Slc"); // ropeburn office start (inbounds)
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Spt");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Slc_Lgts");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Aud");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Building"); // ropeburn office end (inbounds)
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof"); // broken elev start
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Art");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Aud");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Bac");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Bac2");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Spt");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_LW");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Slc");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Spt");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Slc_Lgts");
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Aud"); // broken elev end
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_SL01_Mus"); // zipline
-    DeclaredLoadPackages_Cranes.AddItem("Cranes_SB02_Mus"); // heli rappel
-
-    // Chapter 4 (Subway_p)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren"); // renovation start (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Lgts");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_Slc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_ASlc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_Slc_Lgts"); // renovation end (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_RenBuilding"); // gas valve start (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_RenCo");
-    DeclaredLoadPackages_Subway.AddItem("Subway_RenCo_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_RbMiller_CS");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof-RenCo_Slc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof-RenCo_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof-RenCo_ASlc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Bac");
-    DeclaredLoadPackages_Subway.AddItem("Subway_BacSub");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Ext_Lgts"); // gas valve end (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_RenCo_Door"); // rb miller start (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof"); 
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Roof_LW"); // rb miller end (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_RenCo_Spt"); // after rb death start (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Elev");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Elev_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Elev_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_Slc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_ASlc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_Slc_Lgts"); // after rb death end (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_SL01_Mus"); // elev crash start (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Stat");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Lgts");
-    DeclaredLoadPackages_Subway.AddItem("Subway_BacSub"); // elev crash end (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Lgts");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_Slc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_ASlc");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_Slc_Lgts"); // subway platform end (inbounds)
-    DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel"); // subway tunnel start
-    DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Lgts");
-    DeclaredLoadPackages_Subway.AddItem("Subway_FanP");
-    DeclaredLoadPackages_Subway.AddItem("Subway_FanP_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_FanP_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_FanP_Lgts"); // subway tunnel end
-    DeclaredLoadPackages_Subway.AddItem("Subway_Sky"); // fan room start
-    DeclaredLoadPackages_Subway.AddItem("Subway_Train_Spt");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Train");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Train_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_Train_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat");
-    DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat_Art");
-    DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat_Aud");
-    DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat_Spt"); // fan room end
-
-    // Chapter 5 (Mall_p)
-    DeclaredLoadPackages_Mall.AddItem("Mall_R1_Spt"); // before elev
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2"); // elev shaft start
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2_Art");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2_Aud");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2_Bac");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2_Spt");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2_LW");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2_Lgts");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc_Spt");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc_Building");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Aud");
-    DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc_Lgts");
-    DeclaredLoadPackages_Mall.AddItem("Mall_SL01_Mus"); // elev shaft end
-    DeclaredLoadPackages_Mall.AddItem("Mall_SB02_Mus"); // pipe climb
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall_Art_Pt2"); // beamer start
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall_Lgts_Pt2"); // beamer end
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Slc"); // blue room vent start
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Spt");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Aud");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Lgts");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Bac"); // blue room vent end
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall_Bac"); // final roof start
-    DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Bac");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Roof");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Art");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Aud");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Spt");
-    DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Lgts"); // final roof end
-
-    // Chapter 6 (Factory_p)
-    DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Slc"); // pole grab start
-    DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Spt");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Aud");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Slc_Lgts"); // pole grab end
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Art"); // factory skip start
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Aud");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Spt");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Lgts");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Slc");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Spt");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Aud");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Slc_Lgts"); // factory skip end
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Slc"); // big elev start
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Slc_Spt");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Aud"); // big elev end
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena"); // before pk arena start
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Art");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Spt");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Slc");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Spt");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Aud");
-    DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Slc_Lgts");
-    DeclaredLoadPackages_Factory.AddItem("Factory_SB02_Mus"); // before pk arena end
-
-    // Chapter 7 (Boat_p)
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck"); // truck ride start
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Art");
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Aud");
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Spt");
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Lgts");
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck-Deck_Slc");
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck-Deck_Aud");
-    DeclaredLoadPackages_Boat.AddItem("Boat_PDeck-Deck_Lgts");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Spt"); // truck ride end
-    DeclaredLoadPackages_Boat.AddItem("Boat_Bac"); // puzzle start
-    DeclaredLoadPackages_Boat.AddItem("Boat_Harb");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Art");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Aud");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Bac");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Lgts");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Bac_Lgts"); // puzzle end
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Slc"); // boat deck start
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Aud");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Spt");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Lgts");
-    DeclaredLoadPackages_Boat.AddItem("Boat_SL01_Mus"); // boat deck end
-    DeclaredLoadPackages_Boat.AddItem("Boat_Chase"); // chase start
-    DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Art");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Aud");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Spt");
-    DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Lgt");
-    DeclaredLoadPackages_Boat.AddItem("Boat_End");
-    DeclaredLoadPackages_Boat.AddItem("Boat_End_Art");
-    DeclaredLoadPackages_Boat.AddItem("Boat_End_Aud");
-    DeclaredLoadPackages_Boat.AddItem("Boat_End_Bac");
-    DeclaredLoadPackages_Boat.AddItem("Boat_End_Spt");
-    DeclaredLoadPackages_Boat.AddItem("Boat_End_LW"); // chase end
-
-    // Chapter 8 (Convoy_p)
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_SL01_Mus"); // atrium entrance
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Snipe_Bac"); // vents start (inbounds)
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Art");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Aud");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Bac");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Spt");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Lgts");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Slc");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Slc_Lw");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Aud");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Slc_Lgts");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Bac");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Bac2"); // vents end (inbounds)
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Spt"); // after crash start
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Art");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Lw");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Aud");
-    DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Lgts"); // after crash end
-
-    // Chapter 9 (Scraper_p)
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck"); // fire start
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_Spt");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_Art");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_Aud");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_LGTs");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Slc");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Spt");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Aud");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Lgts"); // fire end
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Spt"); // bev elev start
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Aud"); // bev elev end
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Out_Bac"); // vents start (inbounds)
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Art");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Spt");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Aud");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_LW");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Lgts");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Slc");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Spt");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Aud");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_OnlyTower"); // video surveillance start
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Lgts");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Spt");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Art");
-    DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Aud"); // video surveillance end
-
-    // Main menu
-    DeclaredLoadPackages_TdMainMenu.AddItem("TdMainMenu_Images");
-    DeclaredLoadPackages_TdMainMenu.AddItem("TdMainMenu_Audio0");
-    
-
-    // --- Initialise declared unload packages for each chapter (these are LRT levels) ---
-    // Chapter 1 (Escape_p)
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro"); // office elev start
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Art");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Aud");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Bac");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_LW");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Spt");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Intro_Lgts"); // office elev end
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Off_Bac"); // plaza elev start
-    DeclaredUnloadPackages_Escape.AddItem("Escape_Off-R1_Bac");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Art");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Aud");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Bac");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Spt");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1_LW");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1_Lgts");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1-R2_Slc");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1-R2_Aud");
-    DeclaredUnloadPackages_Escape.AddItem("Escape_R1-R2_Slc_lgts");
-    DeclaredUnloadPackages_Escape.AddItem("Edge_SB01_Mus"); // plaza elev end
-
-    // Chapter 2 (Stormdrain_p)
-    SDNonGateUnloadPackages.AddItem("Stormdrain_StdP-StdE_slc_Spt"); // sd roof elev start
-    SDNonGateUnloadPackages.AddItem("Stormdrain_StdE");
-    SDNonGateUnloadPackages.AddItem("Stormdrain_StdE_Art");
-    SDNonGateUnloadPackages.AddItem("Stormdrain_StdE_Aud"); // sd roof elev end
-    SDNonGateUnloadPackages.AddItem("Stormdrain_StdE-Out_Blding_slc"); // jk elev start
-    SDNonGateUnloadPackages.AddItem("Stormdrain_Roof");
-    SDNonGateUnloadPackages.AddItem("Stormdrain_Roof_Art");
-    SDNonGateUnloadPackages.AddItem("Stormdrain_Roof_Bac");
-    SDNonGateUnloadPackages.AddItem("Stormdrain_Roof_spt"); // jk elev end
-
-    // Chapter 3 (Cranes_p)
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Puzz_Bac2");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Off-Roof_Building");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Art");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Aud");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Bac");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Spt");
-    DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_LW");
-
-    // Chapter 4 (Subway_p)
-    DeclaredUnloadPackages_Subway.AddItem("Subway_Sky");
-    if (WorldInfo.GetMapName() == "Subway_p")
+    else if (MapName == "Cranes_p")
     {
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off"); // first door start (inbounds)
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Art");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Aud");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Bac");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Spt");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Ropeburn_CS");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off_Lgts"); // first door end (inbounds)
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Slc"); // ropeburn office start (inbounds)
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Spt");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Slc_Lgts");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Aud");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Off-Roof_Building"); // ropeburn office end (inbounds)
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof"); // broken elev start
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Art");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Aud");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Bac");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Bac2");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_Spt");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof_LW");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Slc");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Spt");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Slc_Lgts");
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_Roof-Plaza_Aud"); // broken elev end
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_SL01_Mus"); // zipline
+        DeclaredLoadPackages_Cranes.AddItem("Cranes_SB02_Mus"); // heli rappel
+
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Puzz_Bac2");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Off-Roof_Building");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Art");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Aud");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Bac");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_Spt");
+        DeclaredUnloadPackages_Cranes.AddItem("Cranes_Roof_LW");
+    }
+
+    // Chapter 4 (Subway_p)
+    else if (MapName == "Subway_p")
+    {
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren"); // renovation start (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren_Lgts");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_Slc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_ASlc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ren-RenCo_Slc_Lgts"); // renovation end (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_RenBuilding"); // gas valve start (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_RenCo");
+        DeclaredLoadPackages_Subway.AddItem("Subway_RenCo_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_RbMiller_CS");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof-RenCo_Slc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof-RenCo_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof-RenCo_ASlc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Bac");
+        DeclaredLoadPackages_Subway.AddItem("Subway_BacSub");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Ext_Lgts"); // gas valve end (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_RenCo_Door"); // rb miller start (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof"); 
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Roof_LW"); // rb miller end (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_RenCo_Spt"); // after rb death start (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_Elev");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Elev_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Elev_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_Slc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_ASlc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Chase-Stat_Slc_Lgts"); // after rb death end (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_SL01_Mus"); // elev crash start (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_Stat");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Stat_Lgts");
+        DeclaredLoadPackages_Subway.AddItem("Subway_BacSub"); // elev crash end (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat_Lgts");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_Slc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_ASlc");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Plat-Tunnel_Slc_Lgts"); // subway platform end (inbounds)
+        DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel"); // subway tunnel start
+        DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Tunnel_Lgts");
+        DeclaredLoadPackages_Subway.AddItem("Subway_FanP");
+        DeclaredLoadPackages_Subway.AddItem("Subway_FanP_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_FanP_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_FanP_Lgts"); // subway tunnel end
+        DeclaredLoadPackages_Subway.AddItem("Subway_Sky"); // fan room start
+        DeclaredLoadPackages_Subway.AddItem("Subway_Train_Spt");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Train");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Train_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_Train_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat");
+        DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat_Art");
+        DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat_Aud");
+        DeclaredLoadPackages_Subway.AddItem("Subway_NxtPlat_Spt"); // fan room end
+
+        DeclaredUnloadPackages_Subway.AddItem("Subway_Sky");
         SubwayFlagStr = SaveLoad.LoadData("AfterElevatorCrashTriggered");
         if (SubwayFlagStr == "true" && !bAfterElevatorCrash)
         {
@@ -586,18 +416,46 @@ event PostBeginPlay()
             }
 
             RemovePackageIfPresent(DeclaredUnloadPackages_Subway, "Subway_Sky");
-
             bAfterElevatorCrash = true;
         }
     }
 
     // Chapter 5 (Mall_p)
-    DeclaredUnloadPackages_Mall.AddItem("Mall_HW-R1_Slc"); // first elev start
-    DeclaredUnloadPackages_Mall.AddItem("Mall_HW-R1_Aud");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_HW-R1_Lgts"); // first elev end
-    // If we're in Mall_p, check the persistent flag
-    if (WorldInfo.GetMapName() == "Mall_p")
+    else if (MapName == "Mall_p")
     {
+        DeclaredLoadPackages_Mall.AddItem("Mall_R1_Spt"); // before elev
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2"); // elev shaft start
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2_Art");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2_Aud");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2_Bac");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2_Spt");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2_LW");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2_Lgts");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc_Spt");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc_Building");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Aud");
+        DeclaredLoadPackages_Mall.AddItem("Mall_R2-Mall_Slc_Lgts");
+        DeclaredLoadPackages_Mall.AddItem("Mall_SL01_Mus"); // elev shaft end
+        DeclaredLoadPackages_Mall.AddItem("Mall_SB02_Mus"); // pipe climb
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall_Art_Pt2"); // beamer start
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall_Lgts_Pt2"); // beamer end
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Slc"); // blue room vent start
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Spt");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Aud");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Lgts");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Bac"); // blue room vent end
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall_Bac"); // final roof start
+        DeclaredLoadPackages_Mall.AddItem("Mall_Mall-Roof_Bac");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Roof");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Art");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Aud");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Spt");
+        DeclaredLoadPackages_Mall.AddItem("Mall_Roof_Lgts"); // final roof end
+
+        DeclaredUnloadPackages_Mall.AddItem("Mall_HW-R1_Slc"); // first elev start
+        DeclaredUnloadPackages_Mall.AddItem("Mall_HW-R1_Aud");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_HW-R1_Lgts"); // first elev end
         MallFlagStr = SaveLoad.LoadData("MallUnloadRemoved");
         if (MallFlagStr == "true" && !bRemovedMallUnload)
         {
@@ -605,27 +463,51 @@ event PostBeginPlay()
             RemovePackageIfPresent(DeclaredUnloadPackages_Mall, "Mall_HW-R1_Lgts");
             bRemovedMallUnload = true;
         }
+        DeclaredUnloadPackages_Mall.AddItem("Mall_bac"); // mall elev start
+        DeclaredUnloadPackages_Mall.AddItem("Mall_bac");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Slc");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Bac");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Aud");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Lgts");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Art");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Aud");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Bac");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Spt");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2_LW");
+        DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Lgts"); // mall elev end
     }
-    DeclaredUnloadPackages_Mall.AddItem("Mall_bac"); // mall elev start
-    DeclaredUnloadPackages_Mall.AddItem("Mall_bac");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Slc");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Bac");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Aud");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R1-R2_Lgts");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Art");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Aud");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Bac");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Spt");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2_LW");
-    DeclaredUnloadPackages_Mall.AddItem("Mall_R2_Lgts"); // mall elev end
 
     // Chapter 6 (Factory_p)
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Roof-Lbay_Slc");
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Roof-Lbay_Spt");
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Roof-Lbay_Aud");
-    if (WorldInfo.GetMapName() == "Factory_p")
+    else if (MapName == "Factory_p")
     {
+        DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Slc"); // pole grab start
+        DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Spt");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Aud");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Roof-Lbay_Slc_Lgts"); // pole grab end
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Art"); // factory skip start
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Aud");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Spt");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto_Lgts");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Slc");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Spt");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Aud");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Facto-Arena_Slc_Lgts"); // factory skip end
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Slc"); // big elev start
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Slc_Spt");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Aud"); // big elev end
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena"); // before pk arena start
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Art");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena_Spt");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Slc");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Spt");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Aud");
+        DeclaredLoadPackages_Factory.AddItem("Factory_Arena-Pursu_Slc_Lgts");
+        DeclaredLoadPackages_Factory.AddItem("Factory_SB02_Mus"); // before pk arena end
+
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Roof-Lbay_Slc");
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Roof-Lbay_Spt");
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Roof-Lbay_Aud");
         LoadingBayFlagStr = SaveLoad.LoadData("LoadingBayEntered");
         if (LoadingBayFlagStr == "true" && !bEnteredLoadingBay)
         {
@@ -676,57 +558,164 @@ event PostBeginPlay()
 
             bEnteredLoadingBay = true;
         }
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Slc"); // pursuit elev start
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Slc_Spt");
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Arena");
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Art");
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Aud");
+        DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Spt"); // pursuit elev end
     }
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Slc"); // pursuit elev start
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Slc_Spt");
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Arena");
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Art");
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Aud");
-    DeclaredUnloadPackages_Factory.AddItem("Factory_Arena_Spt"); // pursuit elev end
+
+    // Chapter 7 (Boat_p)
+    else if (MapName == "Boat_p")
+    {
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck"); // truck ride start
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Art");
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Aud");
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Spt");
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck_Lgts");
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck-Deck_Slc");
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck-Deck_Aud");
+        DeclaredLoadPackages_Boat.AddItem("Boat_PDeck-Deck_Lgts");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Spt"); // truck ride end
+        DeclaredLoadPackages_Boat.AddItem("Boat_Bac"); // puzzle start
+        DeclaredLoadPackages_Boat.AddItem("Boat_Harb");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Art");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Aud");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Bac");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck_Lgts");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Bac_Lgts"); // puzzle end
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Slc"); // boat deck start
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Aud");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Spt");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Deck-Chase_Lgts");
+        DeclaredLoadPackages_Boat.AddItem("Boat_SL01_Mus"); // boat deck end
+        DeclaredLoadPackages_Boat.AddItem("Boat_Chase"); // chase start
+        DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Art");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Aud");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Spt");
+        DeclaredLoadPackages_Boat.AddItem("Boat_Chase_Lgt");
+        DeclaredLoadPackages_Boat.AddItem("Boat_End");
+        DeclaredLoadPackages_Boat.AddItem("Boat_End_Art");
+        DeclaredLoadPackages_Boat.AddItem("Boat_End_Aud");
+        DeclaredLoadPackages_Boat.AddItem("Boat_End_Bac");
+        DeclaredLoadPackages_Boat.AddItem("Boat_End_Spt");
+        DeclaredLoadPackages_Boat.AddItem("Boat_End_LW"); // chase end
+    }
 
     // Chapter 8 (Convoy_p)
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof"); // first elev start
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Art");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Lw");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Aud");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Bac");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Spt");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Snipe_Bac");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Chase_Bac");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Mall_Bac2"); // first elev end
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof-Conv_slc_Spt"); // atrium elev start
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof-Conv_slc_Building");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Art");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_LW");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Aud");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Bac");
-    DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Spt"); // atrium elev end
+    else if (MapName == "Convoy_p")
+    {
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_SL01_Mus"); // atrium entrance
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Snipe_Bac"); // vents start (inbounds)
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Art");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Aud");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Bac");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Spt");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase_Lgts");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Slc");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Slc_Lw");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Aud");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Chase-Mall_Slc_Lgts");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Bac");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Bac2"); // vents end (inbounds)
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Spt"); // after crash start
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Art");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Lw");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Aud");
+        DeclaredLoadPackages_Convoy.AddItem("Convoy_Mall_Lgts"); // after crash end
+
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof"); // first elev start
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Art");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Lw");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Aud");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Bac");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof_Spt");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Snipe_Bac");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Chase_Bac");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Mall_Bac2"); // first elev end
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof-Conv_slc_Spt"); // atrium elev start
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Roof-Conv_slc_Building");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Art");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_LW");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Aud");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Bac");
+        DeclaredUnloadPackages_Convoy.AddItem("Convoy_Conv_Spt"); // atrium elev end
+    }
 
     // Chapter 9 (Scraper_p)
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Slc"); // first elev start
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Spt");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Spt");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Aud");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_Spt");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_Art");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_Aud");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_LGTs"); // first elev end
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Slc"); // bev elev start
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Spt");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Aud");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Art");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Aud");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Spt");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Bac");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Lgts");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Roof_Buildings");
-    DeclaredUnloadPackages_Scraper.AddItem("Scraper_Plaza_Bac"); // bev elev end
+    else if (MapName == "Scraper_p")
+    {
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck"); // fire start
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_Spt");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_Art");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_Aud");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck_LGTs");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Slc");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Spt");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Aud");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Lgts"); // fire end
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Spt"); // bev elev start
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Duct-Roof_Aud"); // bev elev end
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Out_Bac"); // vents start (inbounds)
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Art");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Spt");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Aud");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_LW");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof_Lgts");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Slc");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Spt");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Roof-Mill_Aud");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_OnlyTower"); // video surveillance start
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Lgts");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Spt");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Art");
+        DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Aud"); // video surveillance end
+
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Slc"); // first elev start
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Spt");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Spt");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Out-Deck_Aud");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_Spt");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_Art");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_Aud");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck_LGTs"); // first elev end
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Slc"); // bev elev start
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Spt");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Deck-Lobby_Aud");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Art");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Aud");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Spt");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Bac");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Lobby_Lgts");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Roof_Buildings");
+        DeclaredUnloadPackages_Scraper.AddItem("Scraper_Plaza_Bac"); // bev elev end
+    }
+
+    // Main menu
+    else
+    {
+        // If run had finished, lock the final time once returning to main menu
+        FinalTimeFlag = SaveLoad.LoadData("FinalTimeLocked");
+        if (FinalTimeFlag == "true")
+        {
+            bFinalTimeLocked = true;
+        }
+
+        DeclaredLoadPackages_TdMainMenu.AddItem("TdMainMenu_Images");
+        DeclaredLoadPackages_TdMainMenu.AddItem("TdMainMenu_Audio0");
+    }
 }
 
-// On respawn, skip the next tick to avoid the extra clamped DeltaTime
+// On respawn, skip 3 ticks to avoid the extra clamped DeltaTime
 function PlayerOwnerRestart()
 {
     super.PlayerOwnerRestart();
@@ -792,23 +781,24 @@ function Tick(float DeltaTime)
         if (MonitorJKLevelLoadsAfterFirstElevator())
         {
             // We reached above the ceiling from elevator clip - boss levels should NOT be RTA
-            RemovePackageIfPresent(SDNonGatePackages, "Stormdrain_boss_Slc");
-            RemovePackageIfPresent(SDNonGatePackages, "Stormdrain_boss_Slc_spt");
-            RemovePackageIfPresent(SDNonGatePackages, "Stormdrain_boss_Slc_Lgts");
-            RemovePackageIfPresent(SDNonGatePackages, "Stormdrain_boss");
-            RemovePackageIfPresent(SDNonGatePackages, "Stormdrain_boss_Aud");
+            RemovePackageIfPresent(DeclaredLoadPackages_Stormdrain, "Stormdrain_boss_Slc");
+            RemovePackageIfPresent(DeclaredLoadPackages_Stormdrain, "Stormdrain_boss_Slc_spt");
+            RemovePackageIfPresent(DeclaredLoadPackages_Stormdrain, "Stormdrain_boss_Slc_Lgts");
+            RemovePackageIfPresent(DeclaredLoadPackages_Stormdrain, "Stormdrain_boss");
+            RemovePackageIfPresent(DeclaredLoadPackages_Stormdrain, "Stormdrain_boss_Aud");
         }
 
         if (MonitorJKLevelUnloadsBeforeFinalElevator())
         {
             // We quit -> continued before final elevator - add these unloads as LRT
-            SDNonGateUnloadPackages.AddItem("Stormdrain_StdE-Out_slc");
-            SDNonGateUnloadPackages.AddItem("Stormdrain_StdE-Out_slc_lgts");
+            DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdE-Out_slc");
+            DeclaredUnloadPackages_Stormdrain.AddItem("Stormdrain_StdE-Out_slc_lgts");
+            RemovePackageIfPresent(DeclaredLoadPackages_Stormdrain, "Stormdrain_boss_Aud");
         }
     }
 
     // Chapter 4-specific monitoring
-    if (MapName == "Subway_p" && bLoadedTimeFromSave && !bAfterElevatorCrash)
+    else if (MapName == "Subway_p" && bLoadedTimeFromSave && !bAfterElevatorCrash)
     {
         if (MonitorReachedSubwayStation())
         {
@@ -828,7 +818,7 @@ function Tick(float DeltaTime)
     }
 
     // Chapter 5-specific monitoring
-    if (MapName == "Mall_p" && bLoadedTimeFromSave && !bRemovedMallUnload)
+    else if (MapName == "Mall_p" && bLoadedTimeFromSave && !bRemovedMallUnload)
     {
         bFoundUnload = false;
         foreach WorldInfo.StreamingLevels(LS)
@@ -853,7 +843,7 @@ function Tick(float DeltaTime)
     }
 
     // Chapter 6-specific monitoring
-    if (MapName == "Factory_p" && bLoadedTimeFromSave && !bEnteredLoadingBay)
+    else if (MapName == "Factory_p" && bLoadedTimeFromSave && !bEnteredLoadingBay)
     {
         if (MonitorEnteredLoadingBay())
         {
@@ -879,7 +869,7 @@ function Tick(float DeltaTime)
     }
 
     // Chapter 9-specific monitoring
-    if (MapName == "Scraper_p")
+    else if (MapName == "Scraper_p")
     {
         if (MonitorShardLevelLoadsAfterFirstElevator())
         {
@@ -949,40 +939,31 @@ function bool ShouldIncrementTimer()
     local LevelStreaming LS;
     local array<string> DeclaredLoadPackages;
     local array<string> DeclaredUnloadPackages;
-    local bool bFoundUndeclared;
-    local bool bFoundDeclared;
-    local bool bFoundDeclaredUnload;
+    local bool bFoundUndeclared, bFoundDeclared, bFoundDeclaredUnload;
+    local bool bStormdrainGateOK;
 
     bFoundUndeclared = false;
     bFoundDeclared = false;
     bFoundDeclaredUnload = false;
+    bStormdrainGateOK = true;
 
     IndicatorScene = TdUIScene_LoadIndicator(DiskAccessIndicatorInstance);
-
-    if (IndicatorScene != none)
+    
+    if (IndicatorScene != None && IndicatorScene.bIsLoadingLevel)
     {
-        // Pause timer during loading level message (block while loading)
-        if (IndicatorScene.bIsLoadingLevel)
-        {
-            return false;
-        }
+        return false;
     }
 
-    // If no levels are loading or unloading at all, reset the load latch but NOT unload latches
     if (!SpeedrunController.IsLoadingLevel() && !IsUnloadingAnyLevel())
     {
         bUndeclaredLoadActive = false;
-        if (!bDeclaredUnloadActive && !bSDDeclaredUnloadActive)
+        if (!bDeclaredUnloadActive)
         {
             return true;
         }
     }
 
     MapName = WorldInfo.GetMapName();
-
-    // Stormdrain special case
-    if (MapName == "Stormdrain_p")
-        return CheckStormdrainLoading(WorldInfo.TimeSeconds);
 
     if (MapName == "Edge_p")
     {
@@ -993,6 +974,13 @@ function bool ShouldIncrementTimer()
     {
         DeclaredLoadPackages = DeclaredLoadPackages_Escape;
         DeclaredUnloadPackages = DeclaredUnloadPackages_Escape;
+    }
+    else if (MapName == "Stormdrain_p")
+    {
+        DeclaredLoadPackages = DeclaredLoadPackages_Stormdrain;
+        DeclaredUnloadPackages = DeclaredUnloadPackages_Stormdrain;
+
+        bStormdrainGateOK = CheckStormdrainLoading();
     }
     else if (MapName == "Cranes_p")
     {
@@ -1036,13 +1024,19 @@ function bool ShouldIncrementTimer()
 
     foreach WorldInfo.StreamingLevels(LS)
     {
-        // If any level is loading, clear the unload latch
         if (LS.bHasLoadRequestPending)
         {
-            // Clear the declared unload latch regardless of package
+            // Stormdrain gate packages are ignored here – handled above
+            if (MapName == "Stormdrain_p"
+                && IsPackageInList(string(LS.PackageName), DeclaredLoadPackages_StormdrainGate))
+            {
+                continue;
+            }
+
+            // clear unload‑latch as soon as any load starts
             if (bDeclaredUnloadActive)
             {
-                bDeclaredUnloadActive = false;                
+                bDeclaredUnloadActive = false;
             }
 
             if (IsPackageInList(string(LS.PackageName), DeclaredLoadPackages))
@@ -1057,14 +1051,22 @@ function bool ShouldIncrementTimer()
 
         if (LS.bHasUnloadRequestPending)
         {
+            // Stormdrain gate packages are ignored here – handled above
+            if (MapName == "Stormdrain_p"
+                && IsPackageInList(string(LS.PackageName), DeclaredUnloadPackages_StormdrainGate))
+            {
+                continue;
+            }
+
             if (IsPackageInList(string(LS.PackageName), DeclaredUnloadPackages))
             {
-                bFoundDeclaredUnload = true;
+                bFoundDeclaredUnload  = true;
                 LastDeclaredUnloadTime = WorldInfo.TimeSeconds;
             }
         }
     }
 
+    // Update generic latches
     if (bFoundUndeclared)
     {
         bUndeclaredLoadActive = true;
@@ -1076,16 +1078,18 @@ function bool ShouldIncrementTimer()
 
     if (bFoundDeclaredUnload)
     {
-        bDeclaredUnloadActive = true;
+        bDeclaredUnloadActive  = true;
         LastDeclaredUnloadTime = WorldInfo.TimeSeconds;
     }
 
+    // Generic latch decision
     if (bUndeclaredLoadActive || bDeclaredUnloadActive)
     {
-        return false;        
+        return false;
     }
 
-    return true;
+    // Final decision
+    return bStormdrainGateOK;
 }
 
 function bool IsUnloadingAnyLevel()
@@ -1132,115 +1136,89 @@ function RemovePackageIfPresent(out array<string> PackageList, string PackageNam
     }
 }
 
-// Helper for Chapter 2 to process SD gate and non–gate loading
-function bool CheckStormdrainLoading(float CurrentTime)
+// Helper for Chapter 2 to process SD gate level streaming
+function bool CheckStormdrainLoading()
 {
+    local bool bGateButtonPressedNow;
+    local bool bFoundUndeclared, bFoundDeclared, bFoundDeclaredUnload;
     local LevelStreaming LS;
-    local bool bSDGateLoading;
-    local bool bUndeclaredLoading;
-    local bool bSDFoundDeclaredUnload;
-    local string PackageName;
+    local string Pkg;
 
-    bSDGateLoading = false;
-    bUndeclaredLoading = false;
-    bSDFoundDeclaredUnload = false;
+    bGateButtonPressedNow = MonitorSDGateButton();
+    bFoundUndeclared = false;
+    bFoundDeclared = false;
+    bFoundDeclaredUnload = false;
 
     foreach WorldInfo.StreamingLevels(LS)
     {
+        Pkg = string(LS.PackageName);
+
         if (LS.bHasLoadRequestPending)
         {
-            // Clear the Stormdrain unload latch regardless of package
-            if (bSDDeclaredUnloadActive)
+            // Gate packages
+            if (IsPackageInList(Pkg, DeclaredLoadPackages_StormdrainGate))
             {
-                bSDDeclaredUnloadActive = false;
-            }
+                if (bGateButtonPressedNow) // button hit early - treat gate loads as LRT
+                {
+                    bFoundUndeclared = true;
+                }
+                else // normal case - gate loads are RTA
+                {
+                    bFoundDeclared = true;
+                }
 
-            PackageName = string(LS.PackageName);
-
-            if (IsPackageInList(PackageName, SDGatePackages))
-            {
-                bSDGateLoading = true;
-                LastSDGateLoadTime = CurrentTime;
-            }
-            else if (!IsPackageInList(PackageName, SDNonGatePackages))
-            {
-                bUndeclaredLoading = true;
-                LastNonSDLoadTime = CurrentTime;
+                if (bDeclaredUnloadActive)
+                {
+                    bDeclaredUnloadActive = false;
+                }
             }
         }
 
         if (LS.bHasUnloadRequestPending)
         {
-            if (IsPackageInList(string(LS.PackageName), SDGateUnloadPackages) || 
-                IsPackageInList(string(LS.PackageName), SDNonGateUnloadPackages))
+            // Gate packages
+            if (IsPackageInList(Pkg, DeclaredUnloadPackages_StormdrainGate))
             {
-                bSDFoundDeclaredUnload = true;
-                LastSDDeclaredUnloadTime = CurrentTime;
+                if (bGateButtonPressedNow) // early button hit  →  treat gate unloads as LRT
+                {
+                    bFoundDeclaredUnload = true;
+                }
+                // otherwise ignore – gate unloads are RTA in the normal case
             }
         }
     }
 
-    if (bSDFoundDeclaredUnload)
+    if (bFoundUndeclared)
     {
-        bSDDeclaredUnloadActive = true;
-        LastSDDeclaredUnloadTime = CurrentTime;
+        bUndeclaredLoadActive = true;
+    }
+    else if (bFoundDeclared)
+    {
+        bUndeclaredLoadActive = false;
     }
 
-    if (!IsStormdrainGate1Loading())
+    if (bFoundDeclaredUnload)
     {
-        bSDGateButtonPressed = false;
+        bDeclaredUnloadActive = true;
+        LastDeclaredUnloadTime = WorldInfo.TimeSeconds;
     }
 
-    if (bUndeclaredLoading)
+    if (!SpeedrunController.IsLoadingLevel() && !IsUnloadingAnyLevel())
     {
-        bSDNonGateLock = true;
-    }
-    else if (bSDNonGateLock && ((CurrentTime - LastNonSDLoadTime) >= 1))
-    {
-        bSDNonGateLock = false;
-    }
+        bUndeclaredLoadActive = false;
 
-    if (MonitorSDGateButton())
-    {
-        bSDGateButtonPressed = true;
-    }
-
-    if (bSDGateButtonPressed)
-    {
-        if (bSDGateLoading)
+        if (!bDeclaredUnloadActive)
         {
-            bSDGateLock = true;
-        }
-        else if (bSDGateLock && ((CurrentTime - LastSDGateLoadTime) >= 1))
-        {
-            bSDGateLock = false;
+            return true; // safe to run the timer
         }
     }
-    else
-    {
-        bSDGateLock = false;
-    }
 
-    if (bSDNonGateLock || bSDGateLock || bSDDeclaredUnloadActive)
+    if (bUndeclaredLoadActive || bDeclaredUnloadActive)
     {
-        return false;
+        return false; // pause the timer
     }
 
     return true;
-}
-
-// Helper function to determine if the final stormdrains gate 1 level is loading
-function bool IsStormdrainGate1Loading()
-{
-    local LevelStreaming LS;
-    foreach WorldInfo.StreamingLevels(LS)
-    {
-        if (LS.bHasLoadRequestPending && (string(LS.PackageName) == "Stormdrain_StdP-StdE_slc_Lgts"))
-        {
-            return true;
-        }
-    }
-    return false;
 }
 
 // Checks for trigger actor events for both stormdrains gate buttons
@@ -1272,6 +1250,24 @@ function bool MonitorSDGateButton()
         }
     }
     return false;
+}
+
+function bool IsActiveCheckpoint(string CheckpointName)
+{
+    local TdCheckpointManager CheckpointManager;
+
+    if (GameData == none)
+    {
+        return false;
+    }
+
+    CheckpointManager = GameData.CheckpointManager;
+    if (CheckpointManager == none)
+    {
+        return false;
+    }
+
+    return (CheckpointManager.GetActiveCheckpoint() == CheckpointName);
 }
 
 function bool MonitorJKLevelLoadsAfterFirstElevator()
@@ -1329,77 +1325,17 @@ function bool MonitorJKLevelUnloadsBeforeFinalElevator()
 
 function bool MonitorReachedSubwayStation()
 {
-    local TdCheckpointManager CheckpointManager;
-    local string ActiveCheckpoint;
-    
-    if (GameData == none)
-    {
-        return false;
-    }
-    
-    CheckpointManager = GameData.CheckpointManager;
-    if (CheckpointManager == none)
-    {
-        return false;
-    }
-
-    ActiveCheckpoint = CheckpointManager.GetActiveCheckpoint();
-    
-    if (ActiveCheckpoint == "Subway_Station")
-    {
-        return true;
-    }
-    return false;
+    return IsActiveCheckpoint("Subway_Station");
 }
 
 function bool MonitorEnteredLoadingBay()
 {
-    local TdCheckpointManager CheckpointManager;
-    local string ActiveCheckpoint;
-    
-    if (GameData == none)
-    {
-        return false;
-    }
-    
-    CheckpointManager = GameData.CheckpointManager;
-    if (CheckpointManager == none)
-    {
-        return false;
-    }
-
-    ActiveCheckpoint = CheckpointManager.GetActiveCheckpoint();
-    
-    if (ActiveCheckpoint == "Loading_bay")
-    {
-        return true;
-    }
-    return false;
+    return IsActiveCheckpoint("Loading_bay");
 }
 
 function bool MonitorShardLevelLoadsAfterFirstElevator()
 {
-    local TdCheckpointManager CheckpointManager;
-    local string ActiveCheckpoint;
-    
-    if (GameData == none)
-    {
-        return false;
-    }
-    
-    CheckpointManager = GameData.CheckpointManager;
-    if (CheckpointManager == none)
-    {
-        return false;
-    }
-
-    ActiveCheckpoint = CheckpointManager.GetActiveCheckpoint();
-    
-    if (ActiveCheckpoint == "Lobby")
-    {
-        return true;
-    }
-    return false;
+    return IsActiveCheckpoint("Lobby");
 }
 
 function bool MonitorShardLevelLoadsBevElevator()
@@ -1423,52 +1359,12 @@ function bool MonitorShardLevelLoadsBevElevator()
 
 function bool MonitorShardLevelUnloadsBeforeFinalElevator()
 {
-    local TdCheckpointManager CheckpointManager;
-    local string ActiveCheckpoint;
-    
-    if (GameData == none)
-    {
-        return false;
-    }
-    
-    CheckpointManager = GameData.CheckpointManager;
-    if (CheckpointManager == none)
-    {
-        return false;
-    }
-
-    ActiveCheckpoint = CheckpointManager.GetActiveCheckpoint();
-    
-    if (ActiveCheckpoint == "Rooftops")
-    {
-        return true;
-    }
-    return false;
+    return IsActiveCheckpoint("Rooftops");
 }
 
 function bool MonitorShardLevelLoadsAfterFinalElevator()
 {
-    local TdCheckpointManager CheckpointManager;
-    local string ActiveCheckpoint;
-    
-    if (GameData == none)
-    {
-        return false;
-    }
-    
-    CheckpointManager = GameData.CheckpointManager;
-    if (CheckpointManager == none)
-    {
-        return false;
-    }
-
-    ActiveCheckpoint = CheckpointManager.GetActiveCheckpoint();
-    
-    if (ActiveCheckpoint == "Server_room")
-    {
-        return true;
-    }
-    return false;
+    return IsActiveCheckpoint("Server_room");
 }
 
 // Check if the heli was actually grabbed and fired the success branch in kismet
