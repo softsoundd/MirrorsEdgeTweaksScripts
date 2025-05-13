@@ -2820,12 +2820,12 @@ function TdBotPawn SpawnBotInternal(string PawnClassName, string AITemplatePath,
 
                 StageResult = -99;
                 bSetupFailed = false;
-                while (StageResult < 1 && !bSetupFailed) // Controller Setup Loop - CORRECTED
+                while (StageResult < 1 && !bSetupFailed)
                 {
                     if (myController == None || myController.Pawn == None || myController.Pawn.bDeleteMe) { bSetupFailed = true; break; }
                     StageResult = myController.SetupTemplate(LoadedTemplate);
-                    // You might want to add a safeguard against infinite loops if SetupTemplate never returns >= 1
-                    if (StageResult == 0 && myController.SetupTemplateCount == 0) { /*This condition might need to be smarter if 0 is a valid intermediate count*/ }
+
+                    if (StageResult == 0 && myController.SetupTemplateCount == 0) {}
                 }
 
                 if (bSetupFailed)
