@@ -162,7 +162,6 @@ function SetupTrainerHUD()
         return;
     }
 
-    ConsoleCommand("set TdHudEffectManager bEnableReactionTimeEffect false");
     ClientMessage(" ");
     ClientMessage("Type \"ToggleTrainerHUD\" to show/hide the trainer items on the right.");
     ClientMessage("Type \"ToggleHUDMessages\" to show/hide the macro and cheat feedback messages.");

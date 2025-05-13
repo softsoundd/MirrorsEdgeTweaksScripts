@@ -7,9 +7,9 @@ var SaveLoadHandler     SaveLoad;
 var UIDataStore_TdGameData GameData;
 var(HUDIcons) Vector2D  TimerPos;
 var(HUDIcons) Vector2D  SplitPos;
-var(HUDIcons) Vector2D SpeedPos;
-var transient string SpeedUnitString;
-var transient int MeasurementUnits;
+var(HUDIcons) Vector2D  SpeedPos;
+var transient string    SpeedUnitString;
+var transient int       MeasurementUnits;
 var bool                bTimerVisible;
 var TdPlayerController  SpeedrunController;
 
@@ -20,6 +20,8 @@ var float             LastDeclaredUnloadTime;
 var int               SkipTicks;
 var bool              bLevelCompleted;
 var float             LastSplitTime;
+
+var transient bool    bHasEverStartedNewGame;
 
 // Chapter 4 (Subway) variables
 var bool              bAfterElevatorCrash;
@@ -33,7 +35,7 @@ var bool              bEnteredLoadingBay;
 // Chapter 9 (Scraper) variables.
 var bool              bHeliReadyForGrab;
 var bool              bFinalTimeLocked;
-var string            Chapter9CompleteMarker;
+var int               RunCompleteMarker;
 
 // These arrays list the streaming level package names that get loaded and should increment the timer (RTA).
 // Any level NOT declared here is assumed to be LRT and is caught by IsLoadingLevel in the ticking function.
@@ -63,6 +65,8 @@ var array<string>     DeclaredUnloadPackages_Factory;   // Chapter 6 (Factory_p)
 var array<string>     DeclaredUnloadPackages_Boat;      // Chapter 7 (Boat_p)
 var array<string>     DeclaredUnloadPackages_Convoy;    // Chapter 8 (Convoy_p)
 var array<string>     DeclaredUnloadPackages_Scraper;   // Chapter 9 (Scraper_p)
+
+var bool              SoundFix;
 
 // Trainer, macro, speed variables
 var vector            CurrentLocation;
@@ -98,7 +102,6 @@ event PostBeginPlay()
 {
     local DataStoreClient DataStoreManager;
     local string MapName;
-    local string TimerState;
     local string SubwayFlagStr;
     local string MallFlagStr;
     local string LoadingBayFlagStr;
@@ -113,9 +116,16 @@ event PostBeginPlay()
         SaveLoad = new class'SaveLoadHandler';
     }
 
+    // Load the flag that indicates if a new game has ever been started for the active game session
+    // This stops the timer automatically incrementing when we first enable speedrun mode
+    bHasEverStartedNewGame = (SaveLoad.LoadData("HasEverStartedNewGame") == "true");
+
     CacheMeasurementUnitInfo();
 
+    SoundFix = (SaveLoad.LoadData("SoundFix") == "") ? false : bool(SaveLoad.LoadData("SoundFix"));
+
     // Load trainer HUD visibility
+    bTimerVisible = (SaveLoad.LoadData("TimerHUDVisible") == "") ? true : bool(SaveLoad.LoadData("TimerHUDVisible"));
     ShowSpeed = (SaveLoad.LoadData("ShowSpeed") == "") ? false : bool(SaveLoad.LoadData("ShowSpeed"));
     ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
     ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
@@ -126,16 +136,6 @@ event PostBeginPlay()
     LastMaxVelocityUpdateTime = WorldInfo.TimeSeconds;
     LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
     UpdateInterval = 3.0;
-
-    TimerState = SaveLoad.LoadData("TimerHUDVisible");
-    if (TimerState != "")
-    {
-        bTimerVisible = (TimerState == "true");
-    }
-    else
-    {
-        bTimerVisible = true;
-    }
 
     MapName = WorldInfo.GetMapName();
     
@@ -149,13 +149,18 @@ event PostBeginPlay()
         SkipTicks = 0;
     }
 
-    // --- Initialise level packages for each chapter. Declared Loads are generally RTA, and declared unloads are generally LRT ---
+    // --- Initialise level packages for each chapter. Unless otherwise changed, declared loads are RTA, and declared unloads are LRT ---
 
     if (MapName == "Edge_p")
     {
+        if (!bHasEverStartedNewGame)
+        {
+            bHasEverStartedNewGame = true;
+            SaveLoad.SaveData("HasEverStartedNewGame", "true");
+        }
         // Reset any monitoring from previous runs
         bFinalTimeLocked = false;
-        Chapter9CompleteMarker = "RunInProgress";
+        RunCompleteMarker = 123456789;
         SaveLoad.SaveData("FinalTimeLocked", "false");
         SaveLoad.SaveData("AfterElevatorCrashTriggered", "false");
         SaveLoad.SaveData("MallUnloadRemoved", "false");
@@ -797,6 +802,17 @@ function Tick(float DeltaTime)
         }
     }
 
+    // Chapter 3-specific monitoring
+    else if (MapName == "Cranes_p")
+    {
+        if (MonitorReachedBrokenElevator() && SoundFix)
+        {
+            // Broken elevator sound fix
+            SetSoundCueMaxPlays("A_Props_Interactive.Construction_Elevator.Button_Negative", 1);
+            SetSoundCueMaxPlays("A_SP03.BrokenElevator.Spark", 1);
+        }
+    }
+
     // Chapter 4-specific monitoring
     else if (MapName == "Subway_p" && bLoadedTimeFromSave && !bAfterElevatorCrash)
     {
@@ -843,9 +859,9 @@ function Tick(float DeltaTime)
     }
 
     // Chapter 6-specific monitoring
-    else if (MapName == "Factory_p" && bLoadedTimeFromSave && !bEnteredLoadingBay)
+    else if (MapName == "Factory_p" && bLoadedTimeFromSave)
     {
-        if (MonitorEnteredLoadingBay())
+        if (!bEnteredLoadingBay && MonitorEnteredLoadingBay())
         {
             // We reached the loading bay entrance checkpoint, prepare timer for inbounds handling
             DeclaredLoadPackages_Factory.AddItem("Factory_Lbay"); // loading bay start (inbounds)
@@ -866,11 +882,39 @@ function Tick(float DeltaTime)
             bEnteredLoadingBay = true;
             SaveLoad.SaveData("LoadingBayEntered", "true");
         }
+
+        if (MonitorReachedConveyorInbounds() || MonitorReachedConveyorAnyPercent() && SoundFix)
+        {
+            SetSoundCueMaxPlays("A_Props_Interactive.Beeps.Conveyor_Alarm", 1);
+        }
+
+        if (MonitorReachedBigLift() && SoundFix)
+        {
+            SetSoundCueMaxPlays("A_SP04.Shaft_Elevator.Shaft_Elevator", 1);
+            SetSoundCueMaxPlays("A_Props_Interactive.Beeps.Conveyor_Alarm", 1);
+        }
+
+        if (MonitorReachedArenaElevator() && SoundFix)
+        {
+            SetSoundCueMaxPlays("A_SP06.Elevator.Inside", 1);
+        }
     }
 
     // Chapter 9-specific monitoring
     else if (MapName == "Scraper_p")
     {
+        if (MonitorReachedMaintenanceAccess() && SoundFix)
+        {
+            SetSoundCueMaxPlays("A_SP09.Gas_Event.ExplosionWithGas", 1);
+            SetSoundCueMaxPlays("A_SP09.Gas_Event.Explosion", 1);
+            SetSoundCueMaxPlays("A_SP09.Gas_Event.BigGas", 1);
+            SetSoundCueMaxPlays("A_SP09.Gas_Event.SmallGas", 1);
+            SetSoundCueMaxPlays("A_SP09.Gas_Event.BurningGas_01", 1);
+            SetSoundCueMaxPlays("A_SP09.Gas_Event.BurningGas_02", 1);
+            SetSoundCueMaxPlays("A_Props_Interactive.Valve.First_Turn", 1);
+            SetSoundCueMaxPlays("A_Props_Interactive.Valve.Turn", 1);
+        }
+
         if (MonitorShardLevelLoadsAfterFirstElevator())
         {
             // We reached the lobby, add these loads as RTA
@@ -914,7 +958,7 @@ function Tick(float DeltaTime)
         if (!bFinalTimeLocked && CheckHeliInteractionComplete())
         {
             bFinalTimeLocked = true;
-            Chapter9CompleteMarker = "RunCompleted";
+            RunCompleteMarker = 987654321;
             SaveLoad.SaveData("FinalTimeLocked", "true");
         }
     }
@@ -942,6 +986,13 @@ function bool ShouldIncrementTimer()
     local bool bFoundUndeclared, bFoundDeclared, bFoundDeclaredUnload;
     local bool bStormdrainGateOK;
 
+    MapName = WorldInfo.GetMapName();
+
+    if (MapName == "TdMainMenu" && !bHasEverStartedNewGame)
+    {
+        return false;
+    }
+
     bFoundUndeclared = false;
     bFoundDeclared = false;
     bFoundDeclaredUnload = false;
@@ -962,8 +1013,6 @@ function bool ShouldIncrementTimer()
             return true;
         }
     }
-
-    MapName = WorldInfo.GetMapName();
 
     if (MapName == "Edge_p")
     {
@@ -1179,7 +1228,7 @@ function bool CheckStormdrainLoading()
             // Gate packages
             if (IsPackageInList(Pkg, DeclaredUnloadPackages_StormdrainGate))
             {
-                if (bGateButtonPressedNow) // early button hit  →  treat gate unloads as LRT
+                if (bGateButtonPressedNow) // early button hit - treat gate unloads as LRT
                 {
                     bFoundDeclaredUnload = true;
                 }
@@ -1323,6 +1372,11 @@ function bool MonitorJKLevelUnloadsBeforeFinalElevator()
     }
 }
 
+function bool MonitorReachedBrokenElevator()
+{
+    return IsActiveCheckpoint("SP03_Office_03_slc");
+}
+
 function bool MonitorReachedSubwayStation()
 {
     return IsActiveCheckpoint("Subway_Station");
@@ -1331,6 +1385,31 @@ function bool MonitorReachedSubwayStation()
 function bool MonitorEnteredLoadingBay()
 {
     return IsActiveCheckpoint("Loading_bay");
+}
+
+function bool MonitorReachedConveyorAnyPercent()
+{
+    return IsActiveCheckpoint("steamroom_puzzle");
+}
+
+function bool MonitorReachedConveyorInbounds()
+{
+    return IsActiveCheckpoint("Conveyor_puzzle");
+}
+
+function bool MonitorReachedBigLift()
+{
+    return IsActiveCheckpoint("after_facto");
+}
+
+function bool MonitorReachedArenaElevator()
+{
+    return IsActiveCheckpoint("TO_arena");
+}
+
+function bool MonitorReachedMaintenanceAccess()
+{
+    return IsActiveCheckpoint("Out_soft");
 }
 
 function bool MonitorShardLevelLoadsAfterFirstElevator()
@@ -1431,17 +1510,6 @@ function bool CheckHeliInteractionComplete()
     return false;
 }
 
-// Command for toggling timer visibility
-exec function ToggleTimer()
-{
-    bTimerVisible = !bTimerVisible;
-    if (SaveLoad == none)
-    {
-        SaveLoad = new class'SaveLoadHandler';
-    }
-    SaveLoad.SaveData("TimerHUDVisible", bTimerVisible ? "true" : "false");
-}
-
 // DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
 function DrawLivingHUD()
 {
@@ -1480,6 +1548,11 @@ function DrawLivingHUD()
         }
 
         DrawTrainerItems();
+
+        if (CheckCheatsTrainerMode())
+        {
+            DrawCheatsTrainerMessage();
+        }
     }
 }
 
@@ -1530,6 +1603,44 @@ function DrawLoadRemovedTimer(TdSPStoryGame Game, bool bBothTimes)
     }
     ComputeHUDPosition(SplitPos.X, SplitPos.Y, 0, 0, pos);
     DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, SplitString, WhiteColor);
+}
+
+// Command for toggling timer visibility
+exec function ToggleTimer()
+{
+    bTimerVisible = !bTimerVisible;
+    SaveLoad.SaveData("TimerHUDVisible", bTimerVisible ? "true" : "false");
+}
+
+function DrawCheatsTrainerMessage()
+{
+    local float Y, ShadowOffset;
+
+    ShadowOffset = 2.0;
+    Canvas.Font = Class'Engine'.static.GetMediumFont();
+
+    Y = Canvas.SizeY * 0.10;
+    Canvas.bCenter = true;
+
+    // Draw shadow
+    Canvas.SetPos(0 + ShadowOffset, Y + ShadowOffset);
+    Canvas.DrawColor = FontDSColor;
+    Canvas.DrawColor.A *= Square(FadeAmount);
+    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+
+    // Draw main text
+    Canvas.SetPos(0, Y);
+    Canvas.DrawColor = RedColor;
+    Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+}
+
+function bool CheckCheatsTrainerMode()
+{
+    if (SpeedrunController.CheatClass == Class'MirrorsEdgeTweaksScripts.MirrorsEdgeCheatManager')
+    {
+        return true;
+    }
 }
 
 // Save timer values on HUD destruction
@@ -1801,26 +1912,49 @@ exec function DisplayTrainerHUDMessage(string Message)
 {
     TrainerHUDMessageText = Message;
     TrainerHUDMessageDisplayTime = WorldInfo.TimeSeconds;
-    TrainerHUDMessageDuration = (bIsMacroTimerActive) ? 99999.0 : 3.0;
+    TrainerHUDMessageDuration = (bIsMacroTimerActive) ? 99999.0 : 1.0;
+}
+
+exec function ToggleSoundFix()
+{
+    SoundFix = !SoundFix;
+    SaveLoad.SaveData("SoundFix", string(SoundFix));
+}
+
+exec function SetSoundCueMaxPlays(string SoundCueName, int MaxPlays)
+{
+    local SoundCue MyCue;
+
+    MyCue = SoundCue(DynamicLoadObject(SoundCueName, class'SoundCue'));
+
+    if (MyCue != None)
+    {
+        MyCue.AbsoluteMaxConcurrentPlayCount = MaxPlays;
+        MyCue.MaxConcurrentPlayCount = MaxPlays;
+    }
+}
+
+exec function SoundFixOn()
+{
+    SoundFix = true;
+    SaveLoad.SaveData("SoundFix", string(SoundFix));
+}
+
+exec function SoundFixOff()
+{
+    SoundFix = false;
+    SaveLoad.SaveData("SoundFix", string(SoundFix));
 }
 
 exec function ToggleSpeed()
 {
     ShowSpeed = !ShowSpeed;
-    if (ShowSpeed)
-    {
-        ShowTrainerHUDItems = false;
-    }
     SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
 }
 
 exec function ToggleTrainerHUD()
 {
     ShowTrainerHUDItems = !ShowTrainerHUDItems;
-    if (ShowTrainerHUDItems)
-    {
-        ShowSpeed = false;
-    }
     SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
 }
 
@@ -1830,14 +1964,62 @@ exec function ToggleMacroFeedback()
     SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
 }
 
+exec function TimerOn()
+{
+    bTimerVisible = true;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+}
+
+exec function SpeedOn()
+{
+    ShowSpeed = true;
+    SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
+}
+
+exec function TrainerHUDOn()
+{
+    ShowTrainerHUDItems = true;
+    SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
+}
+
+exec function MacroFeedbackOn()
+{
+    ShowMacroFeedback = true;
+    SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
+}
+
+exec function TimerOff()
+{
+    bTimerVisible = false;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+}
+
+exec function SpeedOff()
+{
+    ShowSpeed = false;
+    SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
+}
+
+exec function TrainerHUDOff()
+{
+    ShowTrainerHUDItems = false;
+    SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
+}
+
+exec function MacroFeedbackOff()
+{
+    ShowMacroFeedback = false;
+    SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
+}
+
 defaultproperties
 {
     TimerPos=(X=1000,Y=55)
     SplitPos=(X=1000,Y=88)
-    SpeedPos=(X=1000,Y=625)
-    Chapter9CompleteMarker = "RunInProgress"
+    SpeedPos=(X=1060,Y=605)
+    RunCompleteMarker = 123456789
     bTimerVisible = true
-    ShowSpeed = false;
-    ShowTrainerHUDItems = false;
-    ShowMacroFeedback = false;
+    ShowSpeed = false
+    ShowTrainerHUDItems = false
+    ShowMacroFeedback = false
 }

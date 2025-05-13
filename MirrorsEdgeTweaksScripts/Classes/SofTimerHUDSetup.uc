@@ -1,7 +1,5 @@
 /**
  *  Using this class as we need a way to monitor when we have changed game modes to adjust the softimer HUDs accordingly.
- *
- *  I really dislike this, and we wouldn't have to use it at all if we could solve the core custom HUD issue - see Gist: https://gist.github.com/softsoundd/43c79349a27e0d380253883d09c97865
  */
 
 class SofTimerHUDSetup extends TdPlayerController
@@ -11,7 +9,6 @@ class SofTimerHUDSetup extends TdPlayerController
     implements(TdController);
 
 var bool bDifficultySceneOpen;
-var bool bTutorialAcceptTriggered;
 
 simulated event PostBeginPlay()
 {
@@ -42,9 +39,9 @@ function SofTimerMessage()
 {
     ClientMessage("SofTimer currently active. You can toggle various HUD elements with the following commands:");
     ClientMessage("- \"toggletimer\" | LRT Timer (enabled by default) - it is recommended to use the SofTimer readout LiveSplit ASL in either case");
-    ClientMessage("- \"toggletrainerhud\" | Trainer HUD: (disabled by default, has mutual exclusivity with the speedometer)");
-    ClientMessage("- \"togglespeed\" | Speedometer: (disabled by default, has mutual exclusivity with the Trainer HUD)");
-    ClientMessage("- \"togglemacrofeedback\" | Macro feedback messages: (disabled by default)");
+    ClientMessage("- \"toggletrainerhud\" | Trainer HUD (disabled by default, has mutual exclusivity with the speedometer)");
+    ClientMessage("- \"togglespeed\" | Speedometer (disabled by default, has mutual exclusivity with the Trainer HUD)");
+    ClientMessage("- \"togglemacrofeedback\" | Macro feedback messages (disabled by default)");
 }
 
 // More robust check compared to CheckIntendedGameMode() since we need to be sure the player meant to
@@ -84,7 +81,6 @@ function bool CheckNewGameConfirmed()
     }
 
     bDifficultySceneOpen = false;
-    bTutorialAcceptTriggered = false;
     return false;
 }
 

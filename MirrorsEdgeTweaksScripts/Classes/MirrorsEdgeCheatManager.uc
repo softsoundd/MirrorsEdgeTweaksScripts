@@ -5,7 +5,6 @@ var SaveLoadHandler SaveLoad;
 var vector SavedLocation;
 var rotator SavedRotation;
 var vector SavedVelocity;
-var float SavedZVelocity;
 var vector SavedLastJumpLocation;
 var TdPawn.EMovement SavedMoveState;
 var float SavedHealth;
@@ -22,26 +21,51 @@ var bool bJumpMacroActive;
 var bool bInteractMacroActive;
 var bool bGrabMacroActive;
 
+struct SavedBotInfo
+{
+    var string PawnClassName;
+    var string AITemplatePath;
+    var vector Location;
+    var rotator Rotation;
+    var bool  bWasGivenAI;
+    var string CustomSkeletalMeshIdentifier;
+};
+
+var array<SavedBotInfo> ActiveSpawnedBotsData;
+
 // Dolly variables
-var bool   bMonitorDolly;
-var bool   bIsDollyActive;
-var bool   bIsPlayingDolly;
+var bool bMonitorDolly;
+var bool bIsDollyActive;
+var bool bIsPlayingDolly;
 var vector DollyStartPos;
 var rotator DollyStartRot;
-var float  DollyStartFOV;
+var float DollyStartFOV;
 var float CurrentFOV;
 var float GlobalDollyDuration;
 var float GlobalElapsedTime;
 
 struct DollyKeyframe
 {
-    var vector   Position;
-    var rotator  Rotation;
-    var float    Duration;
-    var float    FOV;
+    var vector Position;
+    var rotator Rotation;
+    var float Duration;
+    var float FOV;
 };
 
 var array<DollyKeyframe> Keyframes;
+
+// Prototype cheat manager vars
+var private Vector pP1;
+var private Vector pP2;
+var private Vector oldPos;
+var private TdAIController DebugController;
+var private Pawn aPawn;
+var private Vector OldHitLocation;
+var private bool bStefan;
+var private bool bShowTestAnimHud;
+var private float SlomoSpeed;
+var private Vector enemyPos;
+var private TdPawn ActiveActor;
 
 
 exec function ListCheats()
@@ -79,6 +103,7 @@ exec function ListCheats()
     ClientMessage("\"FreezeWorld\" - Toggles the movement of bots and all other skeletal meshes besides yourself (this is bugged in Mirror's Edge and also disables interactables)");
     ClientMessage("\"InfiniteAmmo\" - Toggles infinite ammo for weapons");
     ClientMessage("\"ListAllWeapons\" - View a list of all valid weapons to equip");
+    ClientMessage("\"ListAllBots\" - View a list of all valid bots to spawn");
     ClientMessage("\"DestroyViewedActor\" - Destroys the bot/object currently looked at (some objects are connected to essential world geometry and are excluded)");
     ClientMessage("\"ChangeSize\" - Scale Faith's size by the specified value (breaks quickly beyond a value of 1)");
     ClientMessage("\"BotOHKO\" - One hit knockout - bots immediately die to any form of damage");
@@ -97,7 +122,7 @@ exec function ListCheats()
 
 exec function ListAllWeapons()
 {
-    ClientMessage("Simply type the listed weapon to equip it:");
+    ClientMessage("Type the listed weapon to spawn it:");
     ClientMessage("\"G36C\"");
     ClientMessage("\"MP5K\"");
     ClientMessage("\"Neostead\"");
@@ -117,6 +142,44 @@ exec function ListAllWeapons()
     ClientMessage("\"SmokeGrenade\" - An untextured smoke grenade model that is used with pistol animations. Grenade is unusable but holding down the fire button shows a reload animation");
     ClientMessage("\"FlashbangGrenade\" - An invisible model with otherwise the same properties as the smoke grenade");
     ClientMessage("\"Bag\" - An incomplete implemenation of an equipped runner bag - pressing the fire button removes the bag");
+}
+
+exec function ListAllBots()
+{
+    ClientMessage("Type the listed bot to spawn it:");
+    ClientMessage("\"Assault\"");
+    ClientMessage("\"AssaultHKG36C\"");
+    ClientMessage("\"AssaultMP5K\"");
+    ClientMessage("\"AssaultNeostead\"");
+    ClientMessage("\"PatrolCopRemington\"");
+    ClientMessage("\"PatrolCopSteyrTMP\"");
+    ClientMessage("\"PatrolCop1\"");
+    ClientMessage("\"PatrolCop2\"");
+    ClientMessage("\"PatrolCop3\"");
+    ClientMessage("\"PatrolCopGlock\"");
+    ClientMessage("\"RiotCop\"");
+    ClientMessage("\"SniperCop\"");
+    ClientMessage("\"Support\"");
+    ClientMessage("\"PursuitCop\"");
+    ClientMessage("\"CelesteBoss\"");
+    ClientMessage("\"Jacknife\"");
+    ClientMessage(" ");
+    ClientMessage("Optionally, type the following custom skins as a second parameter:");
+    ClientMessage("\"Assault\"");
+    ClientMessage("\"PatrolCop\"");
+    ClientMessage("\"SniperCop\"");             
+    ClientMessage("\"Support\"");
+    ClientMessage("\"CelesteBoss\"");
+    ClientMessage("\"Celeste\"");
+    ClientMessage("\"Jacknife\"");
+    ClientMessage("\"Mercury\"");
+    ClientMessage("\"Ropeburn\"");
+    ClientMessage("\"Miller\"");
+    ClientMessage("\"Kreeg\"");
+    ClientMessage("\"Faith\"");
+    ClientMessage("\"Kate\"");
+    ClientMessage("\"Rat\"");
+    ClientMessage("\"Pigeon\"");
 }
 
 exec function DollyHelp()
@@ -226,32 +289,21 @@ exec function FreezeWorld()
 // Sets maximum ammo on all weapons. Todo: see if we can set these variables directly rather than relying on the "set" command
 exec function InfiniteAmmo()
 {
-    local string PropertyName;
-    local string Value;
-    local string Command;
-    local string TargetClass;
-
-    PropertyName = "InfiniteAmmo";
-    TargetClass = "TdPlayerController";
-
-    if (bInfiniteAmmoEnabled)
+    if(Outer.InfiniteAmmo)
     {
-        Value = "False";
-        bInfiniteAmmoEnabled = False;
         ClientMessage("Infinite ammo disabled.");
-        ConsoleCommand("DisplayTrainerHUDMessage Infinite ammo disabled");
+        ConsoleCommand("DisplayTrainerHUDMessage Infinite ammo disabled");       
     }
     else
     {
-        Value = "True";
-        bInfiniteAmmoEnabled = True;
         ClientMessage("Infinite ammo enabled.");
         ConsoleCommand("DisplayTrainerHUDMessage Infinite ammo enabled");
+        if(TdWeapon(Outer.Pawn.Weapon) != none)
+        {
+            TdWeapon(Outer.Pawn.Weapon).AmmoCount++;
+        }
     }
-
-    Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ Value;
-
-    ConsoleCommand(Command);
+    Outer.InfiniteAmmo = !Outer.InfiniteAmmo;
 }
 
 // Destroy bots/objects looked at
@@ -305,7 +357,6 @@ exec function ChangeSize(float F)
     ClientMessage("Faith's size scaled by: " $ F);
 }
 
-// Sets maximum ammo on all weapons. Todo: see if we can set these variables directly rather than relying on the "set" command
 // Also make gun damage persistent and not just for the currently loaded bots
 exec function BotOHKO()
 {
@@ -574,58 +625,54 @@ exec function SaveLocation()
 {
     local vector ConvertedLocation;
     local float PitchDegrees, YawDegrees;
-    local TdPawn PlayerPawn;
+    local TdPawn PlayerPawnRef;
+    local TdPlayerController PlayerController;
+    local int i;
+    local SavedBotInfo BotEntry;
 
-    // Save the current position, rotation, and velocity
+    if (Pawn == None)
+    {
+        ClientMessage("SaveLocation Error: Player Pawn is None. Cannot save.");
+        return;
+    }
+
+    PlayerController = TdPlayerController(Pawn.Controller);
+
     SavedLocation = Pawn.Location;
-    SavedVelocity = Pawn.Velocity;          // Store the current velocity
-    SavedZVelocity = Pawn.Velocity.Z;       // Store vertical velocity component
-    SavedHealth = Pawn.Health;              // Save the current health
-    SavedReactionTimeEnergy = GetReactionTimeEnergy();  // Save reaction time energy
-    SavedReactionTimeState = GetReactionTimeState();    // Save reaction time state
+    SavedVelocity = Pawn.Velocity;
+    SavedHealth = Pawn.Health;
+    SavedReactionTimeEnergy = PlayerController.ReactionTimeEnergy;
+    SavedReactionTimeState = PlayerController.bReactionTime;
 
-    // Save the correct pitch from the Controller's view rotation, not Pawn's rotation
     if (Pawn.Controller != None)
     {
-        SavedRotation.Pitch = Pawn.Controller.Rotation.Pitch;  // Capture the actual pitch from the player's view
+        SavedRotation.Pitch = Pawn.Controller.Rotation.Pitch;
     }
-    SavedRotation.Yaw = Pawn.Rotation.Yaw;            // Capture the yaw from the Pawn's rotation
-    SavedRotation.Roll = 0;                           // Roll isn't used, but needs to be set
+    SavedRotation.Yaw = Pawn.Rotation.Yaw;
+    SavedRotation.Roll = 0;
 
-    // Convert the position by dividing by 100 for ClientMessage display
+    PlayerPawnRef = TdPawn(Pawn);
+    if (PlayerPawnRef != None)
+    {
+        SavedLastJumpLocation = PlayerPawnRef.LastJumpLocation;
+        SavedMoveState = PlayerPawnRef.MovementState;
+    }
+
     ConvertedLocation.X = SavedLocation.X / 100;
     ConvertedLocation.Y = SavedLocation.Y / 100;
     ConvertedLocation.Z = SavedLocation.Z / 100;
-
-    // Convert the rotation back to degrees (360 degrees from 65536) for ClientMessage display
     PitchDegrees = (float(SavedRotation.Pitch) / 65536.0) * 360.0;
     YawDegrees = (float(SavedRotation.Yaw) / 65536.0) * 360.0;
-
-    // Adjust the pitch to display negative values for below the horizon
-    if (PitchDegrees > 180.0)
-    {
-        PitchDegrees -= 360.0;  // Convert pitches above 180 to negative values
-    }
-
-    // Save the move state
-    PlayerPawn = TdPawn(Pawn); // Cast PlayerOwner.Pawn to TdPawn
-    if (PlayerPawn != None)
-    {
-        SavedLastJumpLocation = PlayerPawn.LastJumpLocation;  // Save LastJumpLocation
-        SavedMoveState = PlayerPawn.MovementState;            // Save the move state
-    }
-
-    // Display the saved properties
-    ClientMessage("Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $ 
+    if (PitchDegrees > 180.0) { PitchDegrees -= 360.0; }
+    ClientMessage("Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $
                   " | Saved Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees $ " | Saved Move State: " $ SavedMoveState);
 
-    // Initialise SaveLoadHandler
+
     if (SaveLoad == None)
     {
         SaveLoad = new class'SaveLoadHandler';
     }
 
-    // Save properties using SaveLoadHandler
     SaveLoad.SaveData("SavedLocation", class'SaveLoadHandler'.static.SerialiseVector(SavedLocation));
     SaveLoad.SaveData("SavedVelocity", class'SaveLoadHandler'.static.SerialiseVector(SavedVelocity));
     SaveLoad.SaveData("SavedRotation", class'SaveLoadHandler'.static.SerialiseRotator(SavedRotation));
@@ -633,13 +680,28 @@ exec function SaveLocation()
     SaveLoad.SaveData("SavedReactionTimeEnergy", string(SavedReactionTimeEnergy));
     SaveLoad.SaveData("SavedReactionTimeState", string(SavedReactionTimeState));
 
-    if (PlayerPawn != None)
+    if (PlayerPawnRef != None)
     {
         SaveLoad.SaveData("SavedLastJumpLocation", class'SaveLoadHandler'.static.SerialiseVector(SavedLastJumpLocation));
-        SaveLoad.SaveData("SavedMoveState", EnumToString(PlayerPawn.MovementState));
+        SaveLoad.SaveData("SavedMoveState", EnumToString(PlayerPawnRef.MovementState));
     }
 
-    // Confirmation message
+    // Save any bots we may have spawned
+    SaveLoad.SaveData("SavedBotCount", string(ActiveSpawnedBotsData.Length));
+
+    for (i = 0; i < ActiveSpawnedBotsData.Length; i++)
+    {
+        BotEntry = ActiveSpawnedBotsData[i];
+        SaveLoad.SaveData("SavedBot_" $ i $ "_PawnClass", BotEntry.PawnClassName);
+        SaveLoad.SaveData("SavedBot_" $ i $ "_AITemplate", BotEntry.AITemplatePath);
+        SaveLoad.SaveData("SavedBot_" $ i $ "_Location", class'SaveLoadHandler'.static.SerialiseVector(BotEntry.Location));
+        SaveLoad.SaveData("SavedBot_" $ i $ "_Rotation", class'SaveLoadHandler'.static.SerialiseRotator(BotEntry.Rotation));
+        SaveLoad.SaveData("SavedBot_" $ i $ "_bWasGivenAI", string(BotEntry.bWasGivenAI));
+        SaveLoad.SaveData("SavedBot_" $ i $ "_CustomMeshID", BotEntry.CustomSkeletalMeshIdentifier);
+
+        ClientMessage("Saving Bot " @ i @ ": Class=" @ BotEntry.PawnClassName @ ", MeshID='" @ BotEntry.CustomSkeletalMeshIdentifier @ "'");
+    }
+
     ConsoleCommand("DisplayTrainerHUDMessage Player state saved");
 }
 
@@ -696,143 +758,135 @@ static function EMovement StringToEMovement(string EnumValue)
 // Teleport back to the saved location and rotation, but pause velocity until the OnRelease function is executed.
 exec function TpToSavedLocation()
 {
-    local vector ConvertedLocation;
-    local float PitchDegrees, YawDegrees;
-    local TdPlayerController PlayerController;
-    local TdPawn PlayerPawn;
-    local string SerialisedVector, SerialisedRotator;
+    local TdPlayerController PlayerControllerRef;
+    local TdPawn PlayerPawnRef;
+    local string LoadedStringData;
+    local int i, NumBotsToLoad;
+    local SavedBotInfo BotDataToLoad;
+    local TdBotPawn RespawnedBot;
 
-    // Reset the timer to 0 immediately upon teleportation
     ConsoleCommand("ResetHUDTimer");
 
-    // Initialise SaveLoadHandler
+    DestroyAllTrackedBots();
+
     if (SaveLoad == None)
     {
         SaveLoad = new class'SaveLoadHandler';
     }
 
-    // Load properties from SaveLoadHandler
-    SerialisedVector = SaveLoad.LoadData("SavedLocation");
-    if (SerialisedVector != "")
+    LoadedStringData = SaveLoad.LoadData("SavedLocation");
+    if (LoadedStringData != "") SavedLocation = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData); else SavedLocation = vect(0,0,0);
+
+    LoadedStringData = SaveLoad.LoadData("SavedVelocity");
+    if (LoadedStringData != "") SavedVelocity = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData); else SavedVelocity = vect(0,0,0);
+
+    LoadedStringData = SaveLoad.LoadData("SavedRotation");
+    if (LoadedStringData != "") SavedRotation = class'SaveLoadHandler'.static.DeserialiseRotator(LoadedStringData); else SavedRotation = rot(0,0,0);
+
+    LoadedStringData = SaveLoad.LoadData("SavedHealth");
+    if (LoadedStringData != "") SavedHealth = float(LoadedStringData); else SavedHealth = 100;
+
+    LoadedStringData = SaveLoad.LoadData("SavedReactionTimeEnergy");
+    if (LoadedStringData != "") SavedReactionTimeEnergy = float(LoadedStringData); else SavedReactionTimeEnergy = 0;
+
+    LoadedStringData = SaveLoad.LoadData("SavedReactionTimeState");
+    if (LoadedStringData != "") SavedReactionTimeState = (Locs(LoadedStringData) == "true"); else SavedReactionTimeState = false;
+
+    LoadedStringData = SaveLoad.LoadData("SavedLastJumpLocation");
+    if (LoadedStringData != "") SavedLastJumpLocation = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData);
+
+    LoadedStringData = SaveLoad.LoadData("SavedMoveState");
+    if (LoadedStringData != "") SavedMoveState = StringToEMovement(LoadedStringData); else SavedMoveState = MOVE_Walking;
+
+    LoadedStringData = SaveLoad.LoadData("TimerLocation");
+    if (LoadedStringData != "") TimerLocation = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData);
+
+
+    if (Pawn == None)
     {
-        SavedLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
+        ClientMessage("TpToSavedLocation Error: Player Pawn is None. Cannot restore state.");
     }
-
-    SerialisedVector = SaveLoad.LoadData("SavedVelocity");
-    if (SerialisedVector != "")
+    else if (SavedLocation != vect(0,0,0))
     {
-        SavedVelocity = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
-    }
+        Pawn.Velocity = vect(0,0,0);
+        Pawn.SetLocation(SavedLocation);
+        Pawn.Health = SavedHealth;
 
-    SerialisedRotator = SaveLoad.LoadData("SavedRotation");
-    if (SerialisedRotator != "")
-    {
-        SavedRotation = class'SaveLoadHandler'.static.DeserialiseRotator(SerialisedRotator);
-    }
-
-    SavedHealth = float(SaveLoad.LoadData("SavedHealth"));
-    SavedReactionTimeEnergy = float(SaveLoad.LoadData("SavedReactionTimeEnergy"));
-    SavedReactionTimeState = bool(SaveLoad.LoadData("SavedReactionTimeState"));
-
-    SerialisedVector = SaveLoad.LoadData("SavedLastJumpLocation");
-    if (SerialisedVector != "")
-    {
-        SavedLastJumpLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
-    }
-
-    SerialisedVector = SaveLoad.LoadData("SavedMoveState");
-    if (SerialisedVector != "")
-    {
-        SavedMoveState = StringToEMovement(SerialisedVector);
-    }
-
-    SerialisedVector = SaveLoad.LoadData("TimerLocation");
-    if (SerialisedVector != "")
-    {
-        TimerLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
-    }
-
-    // If the saved location is valid, teleport back to it
-    if (SavedLocation != vect(0, 0, 0))  // Check if there is a saved location
-    {
-        // Set velocity to zero and change physics mode to "freeze" the player
-        Pawn.Velocity = vect(0, 0, 0);          // Stop movement
-        Pawn.SetLocation(SavedLocation);        // Fixate player at saved location
-        Pawn.Health = SavedHealth;              // Restore saved health
-
-        // Restore ReactionTimeEnergy and bReactionTime if controller is available
-        PlayerController = TdPlayerController(Pawn.Controller);
-        if (PlayerController != None)
+        PlayerControllerRef = TdPlayerController(Pawn.Controller);
+        if (PlayerControllerRef != None)
         {
             WorldInfo.Game.SetGameSpeed(1);
-            PlayerController.bReactionTime = SavedReactionTimeState;
+            PlayerControllerRef.bReactionTime = SavedReactionTimeState;
+            PlayerControllerRef.ReactionTimeEnergy = SavedReactionTimeEnergy;
         }
 
-        // Override UncontrolledFall state if currently active
-        if (TdPawn(Pawn).GetStateName() == 'UncontrolledFall')
+        if (TdPawn(Pawn).GetStateName() == 'UncontrolledFall') { TdPawn(Pawn).GotoState('None'); }
+
+        PlayerPawnRef = TdPawn(Pawn);
+        if (PlayerPawnRef != None)
         {
-            TdPawn(Pawn).GotoState('None');  // Exit the UncontrolledFall state
+            PlayerPawnRef.StopAllCustomAnimations(0);
+            PlayerPawnRef.LastJumpLocation = SavedLastJumpLocation;
+
+            if (SavedMoveState == MOVE_Walking || SavedMoveState == MOVE_Falling || SavedMoveState == MOVE_WallRun)
+            { PlayerPawnRef.SetMove(SavedMoveState); }
+            else if (SavedMoveState == MOVE_Grabbing) { PlayerPawnRef.SetMove(MOVE_IntoGrab); }
+            else { PlayerPawnRef.SetMove(MOVE_Walking); } // Fallback
         }
 
-        // Assign PlayerPawn to restore LastJumpLocation and move state
-        PlayerPawn = TdPawn(Pawn);
-        if (PlayerPawn != None)
-        {
-            PlayerPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
-            PlayerPawn.LastJumpLocation = SavedLastJumpLocation;  
-            if (SavedMoveState == MOVE_Walking || 
-                SavedMoveState == MOVE_Falling || 
-                SavedMoveState == MOVE_WallRunningRight ||
-                SavedMoveState == MOVE_WallRunningLeft || 
-                SavedMoveState == MOVE_WallClimbing || 
-                SavedMoveState == MOVE_Jump || 
-                SavedMoveState == MOVE_IntoGrab || 
-                SavedMoveState == MOVE_Crouch ||
-                SavedMoveState == MOVE_Climb || 
-                SavedMoveState == MOVE_ZipLine || 
-                SavedMoveState == MOVE_Balance ||
-                SavedMoveState == MOVE_LedgeWalk || 
-                SavedMoveState == MOVE_RumpSlide || 
-                SavedMoveState == MOVE_WallRun)
-            {
-                PlayerPawn.SetMove(SavedMoveState);  // Apply the saved move state only for specified moves
-            }
-            else if (SavedMoveState == MOVE_Grabbing)
-            {
-                PlayerPawn.SetMove(MOVE_IntoGrab);  // If we saved while grabbing, set the move to IntoGrab. Todo: this doesn't work well
-            }
-        }
+        Pawn.SetPhysics(PHYS_None);
+        ConsoleCommand("set TdPawn bAllowMoveChange False");
 
-        Pawn.SetPhysics(PHYS_None);  
-        ConsoleCommand("set TdPawn bAllowMoveChange False"); 
-
-        // Convert the saved location for display (divide by 100)
-        ConvertedLocation.X = SavedLocation.X / 100;
-        ConvertedLocation.Y = SavedLocation.Y / 100;
-        ConvertedLocation.Z = SavedLocation.Z / 100;
-
-        // Convert the rotation back to degrees (360 degrees from 65536)
-        PitchDegrees = (float(SavedRotation.Pitch) / 65536.0) * 360.0;
-        YawDegrees = (float(SavedRotation.Yaw) / 65536.0) * 360.0;
-
-        // Adjust the pitch to display negative values for below the horizon
-        if (PitchDegrees > 180.0)
-        {
-            PitchDegrees -= 360.0;  // Convert pitches above 180 to negative values
-        }
-
-        // Display the loaded properties
-        ClientMessage("Teleported to Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $ 
-                      " | Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees $ " | Move State: " $ SavedMoveState);
-
-        // Teleport to the saved location and rotation
-        BugItGo(SavedLocation.X, SavedLocation.Y, SavedLocation.Z, SavedRotation.Pitch, SavedRotation.Yaw, 0);  // Roll is always 0
+        BugItGo(SavedLocation.X, SavedLocation.Y, SavedLocation.Z, SavedRotation.Pitch, SavedRotation.Yaw, 0);
     }
-    else
+
+    LoadedStringData = SaveLoad.LoadData("SavedBotCount");
+    if (LoadedStringData != "")
     {
-        ClientMessage("No saved location.");
-        ConsoleCommand("DisplayTrainerHUDMessage No saved location");
+        NumBotsToLoad = int(LoadedStringData);
+
+        for (i = 0; i < NumBotsToLoad; i++)
+        {
+            BotDataToLoad.PawnClassName = ""; BotDataToLoad.AITemplatePath = ""; BotDataToLoad.CustomSkeletalMeshIdentifier = "";
+
+            BotDataToLoad.PawnClassName = SaveLoad.LoadData("SavedBot_" $ i $ "_PawnClass");
+            BotDataToLoad.AITemplatePath = SaveLoad.LoadData("SavedBot_" $ i $ "_AITemplate");
+
+            LoadedStringData = SaveLoad.LoadData("SavedBot_" $ i $ "_Location");
+            if (LoadedStringData != "") BotDataToLoad.Location = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData); else continue;
+
+            LoadedStringData = SaveLoad.LoadData("SavedBot_" $ i $ "_Rotation");
+            if (LoadedStringData != "") BotDataToLoad.Rotation = class'SaveLoadHandler'.static.DeserialiseRotator(LoadedStringData); else continue;
+
+            LoadedStringData = SaveLoad.LoadData("SavedBot_" $ i $ "_bWasGivenAI");
+            if (LoadedStringData != "") BotDataToLoad.bWasGivenAI = (Locs(LoadedStringData) == "true"); else BotDataToLoad.bWasGivenAI = false;
+
+            BotDataToLoad.CustomSkeletalMeshIdentifier = SaveLoad.LoadData("SavedBot_" $ i $ "_CustomMeshID");
+
+            if (BotDataToLoad.PawnClassName == "" || BotDataToLoad.AITemplatePath == "")
+            {
+                ClientMessage("Error: Incomplete class/template data for saved bot index " @ i @ ". Skipping.");
+                continue;
+            }
+
+            RespawnedBot = SpawnBotInternal(
+                BotDataToLoad.PawnClassName,
+                BotDataToLoad.AITemplatePath,
+                BotDataToLoad.Location,
+                BotDataToLoad.Rotation,
+                BotDataToLoad.CustomSkeletalMeshIdentifier,
+                BotDataToLoad.bWasGivenAI,
+                true
+            );
+
+            if (RespawnedBot == None)
+            {
+                ClientMessage("Error: Failed to respawn bot index " @ i @ " with class " @ BotDataToLoad.PawnClassName);
+            }
+        }
     }
+
+    ConsoleCommand("DisplayTrainerHUDMessage Player state restored");
 }
 
 // Function to trigger the timer, restore velocity and movement state upon releasing the teleport key bind
@@ -849,12 +903,11 @@ exec function TpToSavedLocation_OnRelease()
     ConsoleCommand("set TdPawn bAllowMoveChange True");
 
     // Restore the saved velocity upon release
-    if (SavedLocation != vect(0,0,0)) // Ensure there is a saved location
+    if (SavedLocation != vect(0,0,0))
     {
-        // Reapply the saved camera rotation to maintain the saved direction
         if (Pawn.Controller != None)
         {
-            Pawn.Controller.SetRotation(SavedRotation);  // Use SetRotation to apply the saved camera rotation
+            Pawn.Controller.SetRotation(SavedRotation);
         }
 
         // Apply falling physics or walking based on Z velocity - Todo: this method is a bit dumb but has the least compromises for now. Needs improvement
@@ -871,13 +924,11 @@ exec function TpToSavedLocation_OnRelease()
 
         Pawn.Health = SavedHealth;
 
-        // Restore ReactionTimeEnergy and bReactionTime if controller is available
         PlayerController = TdPlayerController(Pawn.Controller);
         if (PlayerController != None)
         {
             PlayerController.ReactionTimeEnergy = SavedReactionTimeEnergy;
 
-            // Ensure bReactionTime matches the saved state by disabling if needed
             if (PlayerController.bReactionTime != SavedReactionTimeState)
             {
                 // If reaction time was saved as off, make sure it’s off
@@ -1150,12 +1201,42 @@ exec function MaxFPS(int FPS)
 // Sets "ultra" graphics. Todo: see if we can set these variables directly rather than relying on the "set" command
 exec function UltraGraphics()
 {
+    local Actor A;
+    local StaticMeshComponent StaticMeshComp;
+    local SkeletalMeshComponent SkeletalMeshComp;
+    local PrimitiveComponent PrimComp;
+
     ConsoleCommand("set DecalComponent bStaticDecal 0");
     ConsoleCommand("set DecalComponent bNeverCull 1");
-    ConsoleCommand("set StaticMeshComponent ForcedLODModel 1");
-    ConsoleCommand("set SkeletalMeshComponent ForcedLODModel 1");
-    ConsoleCommand("set PrimitiveComponent CullDistance 0");
-    ClientMessage("Ultra graphics enabled.");
+
+    ForEach AllActors(class'Actor', A)
+    {
+        ForEach A.AllOwnedComponents(class'StaticMeshComponent', StaticMeshComp)
+        {
+            if (StaticMeshComp != none)
+            {
+                StaticMeshComp.ForcedLODModel = 1;
+            }
+        }
+
+        ForEach A.AllOwnedComponents(class'SkeletalMeshComponent', SkeletalMeshComp)
+        {
+            if (SkeletalMeshComp != none)
+            {
+                SkeletalMeshComp.ForcedLODModel = 1;
+            }
+        }
+
+        ForEach A.AllOwnedComponents(class'PrimitiveComponent', PrimComp)
+        {
+            if (PrimComp != none)
+            {
+                PrimComp.SetCullDistance(0.0);
+            }
+        }
+    }
+
+    ClientMessage("Ultra graphics settings applied.");
 }
 
 // Freezes time and hides crosshair - this too is stolen from UE3 source
@@ -1452,30 +1533,6 @@ exec function MacroGrab()
     ConsoleCommand("ReleasedSwitchWeapon");
 }
 
-function float GetReactionTimeEnergy()
-{
-    local TdPlayerController PlayerController;
-
-    PlayerController = TdPlayerController(Pawn.Controller);
-    if (PlayerController != None)
-    {
-        return PlayerController.ReactionTimeEnergy;
-    }
-    return 0;  // Return a distinct value if unavailable
-}
-
-function bool GetReactionTimeState()
-{
-    local TdPlayerController PlayerController;
-
-    PlayerController = TdPlayerController(Pawn.Controller);
-    if (PlayerController != None)
-    {
-        return PlayerController.bReactionTime;
-    }
-    return false;  // Default to false if unavailable
-}
-
 // This function sets the screen resolution, adjusts UI scaling, and verifies that the chosen resolution is valid
 exec function Resolution(int Width, int Height, optional string Windowed)
 {
@@ -1546,6 +1603,43 @@ exec function Resolution(int Width, int Height, optional string Windowed)
     ConsoleCommand("RestartLevel");
 
     ClientMessage("Resolution set to " $ string(Width) $ "x" $ string(Height) $ " and corrected blurry UI");
+}
+
+// Helper function to allow utilising the native functions in TdUIScene
+function TdUIScene GetActiveOrDefaultTdUIScene()
+{
+    local TdPlayerController PC;
+    local UIInteraction UICont;
+    local TdGameUISceneClient SceneClient;
+    local UIScene ActiveScene;
+    local TdUIScene UI;
+
+    // First, try to retrieve an active UIScene from the UI controller's SceneClient.
+    PC = TdPlayerController(Pawn.Controller);
+    if (PC != none)
+    {
+        UICont = LocalPlayer(PC.Player).ViewportClient.UIController;
+        if (UICont != none)
+        {
+            if (UICont.SceneClient != none)
+            {
+                SceneClient = TdGameUISceneClient(UICont.SceneClient);
+                if (SceneClient.ActiveScenes.Length > 0)
+                {
+                    ActiveScene = SceneClient.ActiveScenes[0];
+                    UI = TdUIScene(ActiveScene);
+                }
+            }
+        }
+    }
+    
+    // If no active scene was found, we load a dummy UIScene.
+    if (UI == none)
+    {
+        UI = TdUIScene(class'TdHUDContent'.static.GetUISceneByName('TdLoadIndicator'));
+    }
+    
+    return UI;
 }
 
 // Persistent ColorScale
@@ -1922,15 +2016,6 @@ exec function StartLoopFunction(float Interval, string Command)
 
 function OnTick(float DeltaTime)
 {
-    local float norm, remapped, globalEffectiveTime;
-    local float cumulative, local_t;
-    local int segIndex, i;
-    local vector newPos, P0, P1, P2, P3;
-    local TdPawn PlayerPawn;
-    local TdPlayerCamera PlayerCam;
-    local float rP0, rP1, rP2, rP3, newPitch, newYaw, newRoll;
-    local float fP0, fP1, fP2, fP3, newFOV;
-
     if (bMonitorFallHeight)
     {
         FallHeightMonitoring();
@@ -1943,8 +2028,61 @@ function OnTick(float DeltaTime)
 
     if (bMonitorDolly)
     {
+        Dolly(DeltaTime);
         DollyMonitoring();
     }
+}
+
+function OnTimerStart(float Duration, bool bLoop)
+{
+    // Optional - Handle timer start event
+    // ClientMessage("Timer started: Duration = " $ Duration $ " seconds, Loop = " $ bLoop);
+}
+
+function OnTimerStop()
+{
+    // Optional - Handle timer stop event
+    // ClientMessage("Timer stopped.");
+}
+
+function OnDelayStart(string FunctionName)
+{
+    // Optional - Handle delayed function start
+    // ClientMessage("Delayed function '" $ FunctionName $ "' started.");
+}
+
+function OnLoopStart(string FunctionName)
+{
+    // Optional - Handle loop start
+    // ClientMessage("Loop function '" $ FunctionName $ "' started.");
+}
+
+function ExecuteCommand(string Command)
+{
+    // Use ConsoleCommand to dynamically invoke exec functions or native commands
+    ConsoleCommand(Command);
+}
+
+exec function testmesh()
+{
+    local TdPawn PlayerPawn;
+
+    PlayerPawn = TdPawn(Pawn);
+
+    PlayerPawn.SetFirstPerson(false);
+    PlayerPawn.Mesh.ForceSkelUpdate();  
+}
+
+function Dolly(float DeltaTime)
+{
+    local float norm, remapped, globalEffectiveTime;
+    local float cumulative, local_t;
+    local int segIndex, i;
+    local vector newPos, P0, P1, P2, P3;
+    local TdPawn PlayerPawn;
+    local TdPlayerCamera PlayerCam;
+    local float rP0, rP1, rP2, rP3, newPitch, newYaw, newRoll;
+    local float fP0, fP1, fP2, fP3, newFOV;
 
     if (!bIsDollyActive)
         return;
@@ -2032,47 +2170,6 @@ function OnTick(float DeltaTime)
     PlayerCam.FreeFlightRotation.Roll = newRoll;
     PlayerCam.DefaultFOV = newFOV;
 }
-
-function OnTimerStart(float Duration, bool bLoop)
-{
-    // Optional - Handle timer start event
-    // ClientMessage("Timer started: Duration = " $ Duration $ " seconds, Loop = " $ bLoop);
-}
-
-function OnTimerStop()
-{
-    // Optional - Handle timer stop event
-    // ClientMessage("Timer stopped.");
-}
-
-function OnDelayStart(string FunctionName)
-{
-    // Optional - Handle delayed function start
-    // ClientMessage("Delayed function '" $ FunctionName $ "' started.");
-}
-
-function OnLoopStart(string FunctionName)
-{
-    // Optional - Handle loop start
-    // ClientMessage("Loop function '" $ FunctionName $ "' started.");
-}
-
-function ExecuteCommand(string Command)
-{
-    // Use ConsoleCommand to dynamically invoke exec functions or native commands
-    ConsoleCommand(Command);
-}
-
-exec function testmesh()
-{
-    local TdPawn PlayerPawn;
-
-    PlayerPawn = TdPawn(Pawn);
-
-    PlayerPawn.SetFirstPerson(false);
-    PlayerPawn.Mesh.ForceSkelUpdate();  
-}
-
 
 // Dolly camera interpolation functions
 function vector BSplineVector(vector P0, vector P1, vector P2, vector P3, float t)
@@ -2544,170 +2641,502 @@ exec function Move(TdPawn.EMovement DesiredMove)
     }
 }
 
-// Incomplete bot spawning implementation - todo: needs to replicate the way the TdActorFactory handles it
-exec function SpawnBot(string PawnClassName, string MeshPath, string AnimSetPath, optional string AnimTreePath, optional string ControllerClassName)
+// Internal function to handle the actual spawning and setup of a bot.
+function TdBotPawn SpawnBotInternal(string PawnClassName, string AITemplatePath, vector NewSpawnLocation, rotator NewSpawnRotation, string InCustomSkeletalMeshIdentifier, bool bGiveAIValue, optional bool bRecordForSaving = true)
 {
     local class<Actor> PawnClassRef;
-    local class<Controller> ControllerClassRef;
     local TdBotPawn NewBot;
-    local Controller NewController;
-    local vector SpawnLocation;
-    local rotator SpawnRotation;
-    local SkeletalMesh BotMesh;
-    local AnimSet BotAnimSet;
-    local AnimTree BotAnimTree;
+    local TdAIController myController;
+    local AITemplate LoadedTemplate;
+    local AITeam FoundTeam;
+    local int StageResult;
+    local bool bSetupFailed;
+    local SavedBotInfo BotRecord;
+    local string OriginalTemplateMeshPath, ResolvedMeshPath;
+    local bool bCustomMeshPathApplied;
 
-    // Determine spawn location and rotation from the player pawn
-    if (Pawn != None)
+    // Load AI template
+    if (AITemplatePath != "")
     {
-        SpawnLocation = Pawn.Location + Vector(Pawn.Rotation) * 200;
-        SpawnRotation = Pawn.Rotation;
+        LoadedTemplate = AITemplate(DynamicLoadObject(AITemplatePath, class'AITemplate'));
+        if (LoadedTemplate == None)
+        {
+            ClientMessage("Error (InternalSpawn): Failed to load AITemplate: " @ AITemplatePath);
+            return None;
+        }
     }
     else
     {
-        ClientMessage("Error: Player Pawn not found. Falling back to world origin.");
-        SpawnLocation = vect(0,0,0);
-        SpawnRotation = rot(0,0,0);
+        ClientMessage("Error (InternalSpawn): AITemplatePath parameter is required.");
+        return None;
     }
 
-    // Load the Pawn class
+    // Load bot class
     PawnClassRef = class<Actor>(DynamicLoadObject(PawnClassName, class'Class'));
     if (PawnClassRef == None)
     {
-        ClientMessage("Failed to load PawnClassRef from " @ PawnClassName);
-        return;
+        ClientMessage("Error (InternalSpawn): Failed to load Pawn Class: " @ PawnClassName);
+        return None;
+    }
+    if (!ClassIsChildOf(PawnClassRef, class'TdBotPawn'))
+    {
+        ClientMessage("Error (InternalSpawn): Class " @ PawnClassName @ " is not a subclass of TdBotPawn.");
+        return None;
     }
 
-    // Spawn the bot pawn
-    NewBot = TdBotPawn(Spawn(PawnClassRef, None, '', SpawnLocation, SpawnRotation));
+    // Spawn the bot actor
+    NewBot = TdBotPawn(Spawn(PawnClassRef, None, '', NewSpawnLocation, NewSpawnRotation));
     if (NewBot == None)
     {
-        ClientMessage("Failed to spawn bot of class: " @ PawnClassName);
-        return;
+        ClientMessage("Error (InternalSpawn): Failed to spawn bot actor of class: " @ PawnClassName);
+        return None;
     }
 
-    // Load and set the Skeletal Mesh
-    if (MeshPath != "")
+    // Handle custom skeletal meshes
+    if (InCustomSkeletalMeshIdentifier != "" && LoadedTemplate != None)
     {
-        BotMesh = SkeletalMesh(DynamicLoadObject(MeshPath, class'SkeletalMesh'));
-        if (BotMesh != None && NewBot.Mesh != None)
-        {
-            NewBot.Mesh.SetSkeletalMesh(BotMesh);
+        Locs(InCustomSkeletalMeshIdentifier);
+        ResolvedMeshPath = InCustomSkeletalMeshIdentifier;
+
+        if (InCustomSkeletalMeshIdentifier == "assault")
+        {            
+            ResolvedMeshPath = "CH_TKY_Cop_SWAT.CH_TKY_Cop_SWAT"; 
         }
-        else
+        else if (InCustomSkeletalMeshIdentifier == "patrolcop")
+        {           
+            ResolvedMeshPath = "CH_TKY_Cop_Patrol.SK_TKY_Cop_Patrol"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "riotcop")
+        {           
+            ResolvedMeshPath = "CH_TKY_Cop_Patrol.SK_TKY_Cop_Patrol_PK"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "snipercop")
+        {           
+            ResolvedMeshPath = "CH_TKY_Cop_SWAT.SK_TKY_Cop_Swat_Sniper"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "support")
+        {           
+            ResolvedMeshPath = "CH_TKY_Cop_Support.SK_TKY_Cop_Support"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "celesteboss")
+        {            
+            ResolvedMeshPath = "CH_TKY_Cop_Pursuit_Female.SK_TKY_Cop_Pursuit_Female"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "celeste")
+        {           
+            ResolvedMeshPath = "CH_Celeste.SK_Celeste"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "jacknife")
+        {            
+            ResolvedMeshPath = "CH_TKY_Crim_Jacknife.SK_TKY_Crim_Jacknife"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "mercury")
+        {            
+            ResolvedMeshPath = "CH_TKY_Crim_Heavy.SK_TKY_Crim_Heavy"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "ropeburn")
+        {            
+            ResolvedMeshPath = "CH_TKY_Crim_RB.SK_TKY_Crim_RB"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "miller")
+        {            
+            ResolvedMeshPath = "CH_Miller.SK_Miller"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "kreeg")
+        {            
+            ResolvedMeshPath = "CH_Kreeg.SK_Kreeg"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "faith")
+        {            
+            ResolvedMeshPath = "CH_TKY_Crim_Fixer.SK_TKY_Crim_Fixer"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "kate")
+        {            
+            ResolvedMeshPath = "CH_TKY_Cop_Patrol_Female.SK_TKY_Cop_Patrol_Female"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "rat")
+        {            
+            ResolvedMeshPath = "CH_Rat.SK_Rat"; 
+        }
+        else if (InCustomSkeletalMeshIdentifier == "pigeon")
         {
-            ClientMessage("Warning: Failed to load or set SkeletalMesh from " @ MeshPath);
+            ResolvedMeshPath = "CH_Pigeon.SK_Pigeon"; 
+        }
+
+        if (ResolvedMeshPath != "")
+        {
+            OriginalTemplateMeshPath = LoadedTemplate.SkeletalMesh;
+            LoadedTemplate.SkeletalMesh = ResolvedMeshPath;
+            bCustomMeshPathApplied = true;
         }
     }
 
-    // Load and set the AnimSet
-    if (AnimSetPath != "")
+    // Setup bot using template
+    StageResult = -99;
+    bSetupFailed = false;
+    while (StageResult < 1 && !bSetupFailed)
     {
-        BotAnimSet = AnimSet(DynamicLoadObject(AnimSetPath, class'AnimSet'));
-        if (BotAnimSet != None && NewBot.Mesh != None)
-        {
-            NewBot.Mesh.AnimSets.Length = 1;
-            NewBot.Mesh.AnimSets[0] = BotAnimSet;
-        }
-        else
-        {
-            ClientMessage("Warning: Failed to load or set AnimSet from " @ AnimSetPath);
-        }
+        if (NewBot == None || NewBot.bDeleteMe) { bSetupFailed = true; break; }
+        StageResult = NewBot.SetupTemplate(LoadedTemplate, true);
+        if (StageResult == 0 && NewBot.SetupTemplateCount == 0) { bSetupFailed = true; }
     }
 
-    // Load and set the AnimTree (if provided)
-    if (AnimTreePath != "")
+    if (bCustomMeshPathApplied && LoadedTemplate != None)
     {
-        BotAnimTree = AnimTree(DynamicLoadObject(AnimTreePath, class'AnimTree'));
-        if (BotAnimTree != None && NewBot.Mesh != None)
+        if (LoadedTemplate.SkeletalMesh == ResolvedMeshPath)
         {
-            NewBot.Mesh.SetAnimTreeTemplate(BotAnimTree);
+            LoadedTemplate.SkeletalMesh = OriginalTemplateMeshPath;
+        } else {
+            ClientMessage("Warning (InternalSpawn): Template mesh path was not as expected before reverting. Current: '"@LoadedTemplate.SkeletalMesh@"', Expected set: '"@ResolvedMeshPath@"' Original: '"@OriginalTemplateMeshPath@"'");
         }
-        else
-        {
-            ClientMessage("Warning: Failed to load or set AnimTree from " @ AnimTreePath);
-        }
+        bCustomMeshPathApplied = false;
     }
 
-    // If a ControllerClassName is provided, load and spawn that controller
-    if (ControllerClassName != "")
+
+    if (bSetupFailed)
     {
-        ControllerClassRef = class<Controller>(DynamicLoadObject(ControllerClassName, class'Class'));
-        if (ControllerClassRef != None)
+        ClientMessage("Error (InternalSpawn): Pawn setup aborted for " @ NewBot.Name);
+        if (NewBot != None && !NewBot.bDeleteMe) NewBot.Destroy();
+        return None;
+    }
+
+    // Spawn controller, assign team, setup controller
+    if (NewBot != None && !NewBot.bDeleteMe)
+    {
+        NewBot.SpawnDefaultController();
+        if (bGiveAIValue)
         {
-            NewController = (Spawn(ControllerClassRef));
-            if (NewController != None)
+            myController = TdAIController(NewBot.Controller);
+            if (myController != None)
             {
-                // Possess the pawn with this controller
-                NewController.Possess(NewBot, FALSE);
+                FoundTeam = FindFirstAITeam();
+                if (FoundTeam != None)
+                {
+                    myController.Team = FoundTeam;
+                    FoundTeam.AddMember(myController);
+                } else {
+                    ClientMessage("Warning (InternalSpawn): Could not find an AITeam for " @ NewBot.Name);
+                }
+
+                StageResult = -99;
+                bSetupFailed = false;
+                while (StageResult < 1 && !bSetupFailed) // Controller Setup Loop - CORRECTED
+                {
+                    if (myController == None || myController.Pawn == None || myController.Pawn.bDeleteMe) { bSetupFailed = true; break; }
+                    StageResult = myController.SetupTemplate(LoadedTemplate);
+                    // You might want to add a safeguard against infinite loops if SetupTemplate never returns >= 1
+                    if (StageResult == 0 && myController.SetupTemplateCount == 0) { /*This condition might need to be smarter if 0 is a valid intermediate count*/ }
+                }
+
+                if (bSetupFailed)
+                {
+                    ClientMessage("Error (InternalSpawn): Controller setup aborted for " @ myController.Name);
+                    if (NewBot != None && !NewBot.bDeleteMe) NewBot.Destroy();
+                    return None;
+                }
+                
+                if (FoundTeam == None)
+                {
+                    ClientMessage("Warning (InternalSpawn): No AITeam found in the level!");
+                }
+
+                if (FoundTeam != None)
+                {
+                    myController.Team = FoundTeam;
+                    FoundTeam.AddMember(myController);
+                }
+                else
+                {
+                    ClientMessage("CRITICAL: No AITeam found or assigned! This will likely break AI.");
+                }
+
+                myController.Initialize();
+
+                if (Pawn != None)
+                {
+                    if (myController.Enemy == None)
+                    {
+                        myController.SetEnemy(TdPawn(Pawn));
+                    }
+
+                    myController.SetDifficultyLevel(myController.DifficultyLevel);
+                }
+                else
+                {
+                    ClientMessage("Error: Player Pawn reference is None. Cannot set AI target.");
+                }
             }
             else
             {
-                ClientMessage("Failed to spawn controller: " @ ControllerClassName);
+                ClientMessage("Error (InternalSpawn): Failed to get TdAIController for " @ NewBot.Name @ " when bGiveAI was true.");
+                if (NewBot != None && !NewBot.bDeleteMe) NewBot.Destroy();
+                return None;
             }
         }
-        else
+
+        // Record bot data
+        if (bRecordForSaving)
         {
-            ClientMessage("Failed to load controller class: " @ ControllerClassName);
+            BotRecord.PawnClassName = PawnClassName;
+            BotRecord.AITemplatePath = AITemplatePath;
+            BotRecord.Location = NewBot.Location;
+            BotRecord.Rotation = NewBot.Rotation;
+            BotRecord.bWasGivenAI = bGiveAIValue;
+            BotRecord.CustomSkeletalMeshIdentifier = InCustomSkeletalMeshIdentifier;
+            ActiveSpawnedBotsData.AddItem(BotRecord);
         }
+
+        return NewBot;
+    }
+
+    ClientMessage("Warning (InternalSpawn): Bot disappeared or setup failed before completion for class " @ PawnClassName);
+    if (NewBot != None && !NewBot.bDeleteMe) NewBot.Destroy();
+    return None;
+}
+
+
+// Spawns a bot using its AITemplate, and optional custom mesh and team assignment
+exec function SpawnBot(string PawnClassName, string AITemplatePath, optional string CustomSkeletalMeshIdentifier, optional bool bGiveAIFromExec)
+{
+    local vector PlayerRelativeSpawnLocation;
+    local rotator PlayerRelativeSpawnRotation;
+    local TdBotPawn SpawnedBotReference;
+
+    if (Pawn != None)
+    {
+        PlayerRelativeSpawnLocation = Pawn.Location + Vector(Pawn.Rotation) * 200;
+        PlayerRelativeSpawnRotation = Pawn.Rotation;
     }
     else
     {
-        // If no custom controller specified, just spawn the default one
-        NewBot.SpawnDefaultController();
+        ClientMessage("Error (SpawnBot Exec): Player Pawn not found. Spawning at origin.");
+        PlayerRelativeSpawnLocation = vect(0,0,0);
+        PlayerRelativeSpawnRotation = rot(0,0,0);
     }
 
-    ClientMessage("Spawned bot: " @ PawnClassName @ " at " @ SpawnLocation);
+    SpawnedBotReference = SpawnBotInternal(PawnClassName, AITemplatePath, PlayerRelativeSpawnLocation, PlayerRelativeSpawnRotation, CustomSkeletalMeshIdentifier, bGiveAIFromExec, true);
+
+    if (SpawnedBotReference == None)
+    {
+        ClientMessage("Exec SpawnBot failed for class: " @ PawnClassName);
+    }
 }
 
-exec function SpawnCop()
+function DestroyAllTrackedBots()
 {
-    SpawnBot(
-        "TdSpContent.TdBotPawn_PatrolCop",
-        "CH_TKY_Cop_Patrol.SK_TKY_Cop_Patrol",
-        "AS_AI_PatrolCop_OneHanded.AS_AI_PatrolCop_OneHanded",
-        "AT_Cop.AT_Cop"
-    );
+    local TdBotPawn Bot;
+
+    foreach WorldInfo.AllActors(class'TdBotPawn', Bot)
+    {
+        if (Bot != None && !Bot.bDeleteMe)
+        {
+            Bot.Destroy();
+        }
+    }
+
+    ActiveSpawnedBotsData.Remove(0, ActiveSpawnedBotsData.Length);
 }
 
-exec function SpawnRiot()
+// Helper function to find the first available AITeam
+function AITeam FindFirstAITeam()
 {
-    SpawnBot(
-        "TdSpContent.TdBotPawn_RiotCop",
-        "CH_TKY_Cop_Riot.SK_TKY_Cop_Riot",
-        "AS_AI_RiotCop_OneHanded.AS_AI_RiotCop_OneHanded",
-        "AT_Cop.AT_Cop"
-    );
+    local AITeam T;
+
+    foreach AllActors(class'AITeam', T)
+    {
+        return T;
+    }
+    return None;
 }
 
-exec function SpawnSniper()
-{
-    SpawnBot(
-        "TdSpContent.TdBotPawn_SniperCop",
-        "CH_TKY_Cop_SWAT.SK_TKY_Cop_Swat_Sniper",
-        "AS_AI_Assault_TwoHanded.AS_AI_Assault_TwoHanded",
-        "AT_Cop.AT_Cop"
-    );
-}
-
-exec function SpawnSWAT()
+exec function Assault(optional string CustomSkeletalMesh, optional bool bGiveAI)
 {
     SpawnBot(
         "TdSpContent.TdBotPawn_Assault",
-        "CH_TKY_Cop_SWAT.CH_TKY_Cop_SWAT",
-        "AS_AI_Assault_TwoHanded.AS_AI_Assault_TwoHanded",
-        "AT_Cop.AT_Cop"
+        "TdGame.Default__AITemplate_Assault",
+        CustomSkeletalMesh,
+        bGiveAI
     );
 }
 
-exec function SpawnMerc()
+exec function AssaultHKG36C(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_Assault",
+        "TdGame.Default__AITemplate_Assault_HKG36C",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function AssaultMP5K(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_Assault",
+        "TdGame.Default__AITemplate_Assault_MP5K",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function AssaultNeostead(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_Assault",
+        "TdGame.Default__AITemplate_Assault_Neostead",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function PatrolCopRemington(optional string CustomSkeletalMesh, optional bool bGiveAI)
 {
     SpawnBot(
         "TdSpContent.TdBotPawn_PatrolCop",
-        "CH_TKY_Crim_Heavy.SK_TKY_Crim_Heavy",
-        "",
-        ""
+        "TdGame.Default__AITemplate_PatrolCop_Remington",
+        CustomSkeletalMesh,
+        bGiveAI
     );
+}
+
+exec function PatrolCopSteyrTMP(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_PatrolCop",
+        "TdGame.Default__AITemplate_PatrolCop_SteyrTMP",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function PatrolCop1(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_PatrolCop",
+        "TdGame.Default__AITemplate_PatrolCop",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function PatrolCop2(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_PatrolCop",
+        "TdGame.Default__AITemplate_PatrolCop2",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function PatrolCop3(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_PatrolCop",
+        "TdGame.Default__AITemplate_PatrolCop3",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function PatrolCopGlock(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_PatrolCop",
+        "TdGame.Default__AITemplate_PatrolCop_Glock",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function RiotCop(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_RiotCop",
+        "TdGame.Default__AITemplate_RiotCop",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function SniperCop(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_SniperCop",
+        "TdGame.Default__AITemplate_SniperCop",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function Support(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_Support",
+        "TdGame.Default__AITemplate_Support",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function PursuitCop(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_PursuitCop",
+        "TdGame.Default__AITemplate_PursuitCop",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function Gunner(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_SupportHelicopterGunner",
+        "TdGame.Default__AITemplate_Gunner",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function CelesteBoss(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpBossContent.TdBotPawn_Celeste",
+        "TdGame.Default__AITemplate_Celeste",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function Jacknife(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_JKSniper",
+        "TdGame.Default__AITemplate_HeliSniper",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function Celeste(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpContent.TdBotPawn_Dummy",
+        "TdGame.Default__AITemplate_Tutorial",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function Ragdoll()
+{
+    local private TdBotPawn P;
+
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        P.TakeDamage(9999, none, vect(0, 0, 0), vect(0, 0, 0), Class'TdDmgType_Melee');    
+    }    
 }
 
 // Rudimentary function for cycling through the view targets of actors of the specified class (i.e. TdBotPawn)
@@ -2744,41 +3173,1162 @@ exec function ViewClass(class<actor> aClass)
 		ViewSelf(false);
 }
 
-// Helper function to allow utilising the native functions in TdUIScene
-function TdUIScene GetActiveOrDefaultTdUIScene()
-{
-    local TdPlayerController PC;
-    local UIInteraction UICont;
-    local TdGameUISceneClient SceneClient;
-    local UIScene ActiveScene;
-    local TdUIScene UI;
 
-    // First, try to retrieve an active UIScene from the UI controller's SceneClient.
-    PC = TdPlayerController(Pawn.Controller);
-    if (PC != none)
+////////////////////////////////////
+// Prototype cheat manager functions
+////////////////////////////////////
+
+function SetDebugControllers()
+{
+    if(DebugController == none)
     {
-        UICont = LocalPlayer(PC.Player).ViewportClient.UIController;
-        if (UICont != none)
+        foreach Outer.WorldInfo.AllControllers(Class'TdAIController', DebugController)
         {
-            if (UICont.SceneClient != none)
+            break;            
+        }        
+    }
+    if(aPawn == none)
+    {
+        foreach Outer.WorldInfo.AllPawns(Class'Pawn', aPawn)
+        {
+            break;            
+        }        
+    }
+}
+
+exec function DebugDamage()
+{
+    local private TdAIController C;
+
+    Outer.ClientMessage("Toggle debug damage on all spawned AI pawns.");
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', C)
+    {
+        if(C.myPawn != none)
+        {
+            C.myPawn.bDebugDamage = !C.myPawn.bDebugDamage;
+        }        
+    }    
+}
+
+exec function ToggleRebuilt()
+{
+    //Outer.WorldInfo.bRemoveRebuildLighting = !Outer.WorldInfo.bRemoveRebuildLighting;
+    ConsoleCommand("set WorldInfo bRemoveRebuildLighting 1");
+}
+
+exec function SuppressAI()
+{
+    local private TdAIController C;
+
+    Outer.ClientMessage("Suppress called by player!!!");
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', C)
+    {
+        Outer.ClientMessage("Adding suppression");
+        C.AddSuppressionFactor(1);        
+    }    
+}
+
+exec function Difficulty(int Level)
+{
+    local private TdAIController AIGuy;
+    local private TdPlayerController PlayerGrrl;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', AIGuy)
+    {
+        AIGuy.SetDifficultyLevel(Level);        
+    }    
+    foreach Outer.WorldInfo.AllControllers(Class'TdPlayerController', PlayerGrrl)
+    {
+        PlayerGrrl.SetDifficultyLevel(Level);        
+    }    
+}
+
+exec function Ammo()
+{
+    if(Outer.InfiniteAmmo)
+    {
+        Outer.ClientMessage("Infinite Ammo off");        
+    }
+    else
+    {
+        Outer.ClientMessage("Infinite Ammo on");
+        if(TdWeapon(Outer.Pawn.Weapon) != none)
+        {
+            TdWeapon(Outer.Pawn.Weapon).AmmoCount++;
+        }
+    }
+    Outer.InfiniteAmmo = !Outer.InfiniteAmmo;
+}
+
+exec function SeeMe()
+{
+    local private TdAIController P;
+
+    if((Outer.WorldInfo.NetMode != NM_Standalone) || Outer.Pawn == none)
+    {
+        return;
+    }
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.HandleEnemySeen(Outer.Pawn);        
+    }    
+}
+
+exec function Test()
+{
+    AIGotoState('TestingState_Test', true);
+}
+
+exec function Cover()
+{
+    AIGotoState('TestingState_Cover', true);
+}
+
+exec function Run()
+{
+    AIGotoState('TestingState_Run', false);
+}
+
+exec function DebugCover(bool bSelectClosestCover)
+{
+    local private TdAIController AIController;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', AIController)
+    {
+        if(bSelectClosestCover)
+        {
+            AIController.TdGotoState('DebugCoverState', 'Begin');
+            continue;
+        }
+        AIController.TdGotoState('DebugCoverState', 'Random');        
+    }    
+}
+
+exec function ChangeCover(bool bSelectClosestCover)
+{
+    local private TdAIController AIController;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', AIController)
+    {
+        if(AIController.IsInState('DebugCoverState') == true)
+        {
+            if(bSelectClosestCover)
             {
-                SceneClient = TdGameUISceneClient(UICont.SceneClient);
-                if (SceneClient.ActiveScenes.Length > 0)
-                {
-                    ActiveScene = SceneClient.ActiveScenes[0];
-                    UI = TdUIScene(ActiveScene);
-                }
+                AIController.TdGotoState('DebugCoverChangeCoverState', 'Begin');
+                continue;
+            }
+            AIController.TdGotoState('DebugCoverChangeCoverState', 'Random');
+        }        
+    }    
+}
+
+exec function CoverGoToState(string iState)
+{
+    local private TdAIController AIController;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', AIController)
+    {
+        AIController.CoverGoToState(iState);        
+    }    
+}
+
+exec function LLThrowGrenade()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.TdGotoState('ThrowGrenadeState');        
+    }    
+}
+
+exec function LLRetreat()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.TdGotoState('Retreat', 'Begin',,, true);        
+    }    
+}
+
+exec function LLTurn()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.myPawn.SetMove(43);        
+    }    
+}
+
+exec function LLDoFinishAttack()
+{
+    local private TdAI_Pursuit P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAI_Pursuit', P)
+    {
+        P.NotifyFinishingMovePossible();        
+    }    
+}
+
+/* exec function LLDoMeleeDodge()
+{
+    local private TdAI_Pursuit P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAI_Pursuit', P)
+    {
+        P.NotifyIncomingMeleeAttack();        
+    }    
+} */
+
+exec function ToggleSlomo()
+{
+    SlomoSpeed += 0.3;
+    if(SlomoSpeed > 1)
+    {
+        SlomoSpeed = 0.1;
+    }
+    SloMo(SlomoSpeed);
+}
+
+exec function PlayAnim(name AnimationName)
+{
+    local private TdBotPawn AiPawn;
+    local private TdAIController AIController;
+    local private TdMove_AnimationPlayback AnimationPlaybackMove;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', AIController)
+    {
+        AiPawn = AIController.myPawn;
+        AnimationPlaybackMove = TdMove_AnimationPlayback(AiPawn.Moves[74]);
+        AnimationPlaybackMove.SetAnimationName(AnimationName);
+        AnimationPlaybackMove.SetBlendTime(0, 0);
+        AnimationPlaybackMove.UseRootMotion(false);
+        AnimationPlaybackMove.UseRootRotation(false);
+        AnimationPlaybackMove.SetPhysics(1);
+        AiPawn.SetMove(74);        
+    }    
+    bShowTestAnimHud = true;
+}
+
+exec function hack1()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.myPawn.bUseLegRotationHack1 = !P.myPawn.bUseLegRotationHack1;
+        ClientMessage("bUseLegRotationHack1:" @ string(P.myPawn.bUseLegRotationHack1));        
+    }    
+    bShowTestAnimHud = true;
+}
+
+exec function hack2()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.myPawn.bUseLegRotationHack2 = !P.myPawn.bUseLegRotationHack2;
+        ClientMessage("bUseLegRotationHack2:" @ string(P.myPawn.bUseLegRotationHack2));        
+    }    
+    bShowTestAnimHud = true;
+}
+
+exec function Invisible()
+{
+    local private TdAIController P;
+    local private TdAIManager AIManager;
+
+    AIManager = TdSPStoryGame(Outer.WorldInfo.Game).AIManager;
+    if(AIManager == none)
+    {
+        return;
+    }
+    if(AIManager.bPlayerInvisibleToAI)
+    {
+        ClientMessage("Making player visible to AI");
+        AIManager.bPlayerInvisibleToAI = false;        
+    }
+    else
+    {
+        ClientMessage("Making player invisible to AI");
+        AIManager.bPlayerInvisibleToAI = true;
+        AIManager.CheckedLastSeenLocation = false;
+        AIManager.LastSeenLocation = vect(0, 0, 0);
+        foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+        {
+            ConsoleCommand("set TdAIController WantedFocus FT_None");
+            ConsoleCommand("HeadFocus False");
+            P.myEnemy = none;
+            P.Enemy = none;
+            P.EnemyVisible = false;
+            P.StopFiring();
+            P.UpdateCombatState();
+            P.Team.Enemy = none;
+            P.Team.ForgetEnemy();
+            P.Team.Reset();
+            P.TdGotoState('Idle',,,, true);            
+        }        
+    }
+}
+
+exec function ToggleAIWalking()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        if(P.myPawn.GetIsWalkingFlagSet())
+        {
+            P.myPawn.SetWalking(false);
+            ClientMessage("AI Stops Walking");
+            continue;
+        }
+        P.myPawn.SetWalking(true);
+        ClientMessage("AI Starts Walking");        
+    }    
+}
+
+exec function ToggleAICrouching()
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        if(P.myPawn.IsCrouching())
+        {
+            P.Crouch(false);
+            ClientMessage("AI Stops Crouching");
+            continue;
+        }
+        P.Crouch(true);
+        ClientMessage("AI Starts Crouching");        
+    }    
+}
+
+exec function TestCovers()
+{
+    AIGotoState('TestingState_TestCovers', true);
+}
+
+exec function Idle()
+{
+    AIGotoState('Idle');
+}
+
+exec function AIGotoState(name NewState, optional bool onlyFirst)
+{
+    local private TdAIController P;
+    local private bool hasSet;
+
+    onlyFirst = false;
+    if((Outer.WorldInfo.NetMode != NM_Standalone) || Outer.Pawn == none)
+    {
+        return;
+    }
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        if(!hasSet)
+        {
+            P.TdGotoState(NewState,,,, true);            
+        }
+        else
+        {
+            P.TdGotoState('Error',,,, true);
+        }
+        if(onlyFirst)
+        {
+            hasSet = true;
+        }        
+    }    
+}
+
+exec function AIGod()
+{
+    local private TdAIController P;
+    local private bool isGod, Set;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.myPawn.bAIGodMode = !P.myPawn.bAIGodMode;
+        isGod = P.myPawn.bAIGodMode;
+        Set = true;        
+    }    
+    if(Set)
+    {
+        if(isGod)
+        {
+            Outer.ClientMessage("AI is GOD");            
+        }
+        else
+        {
+            Outer.ClientMessage("AI is Human");
+        }
+    }
+}
+
+exec function Jesus()
+{
+    if(Outer.bJesusMode)
+    {
+        Outer.bJesusMode = false;
+        Outer.ClientMessage("Jesus mode off");
+        return;
+    }
+    Outer.bJesusMode = true;
+    Outer.ClientMessage("Jesus Mode on");
+}
+
+exec function DropMe()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+    local private Vector Extent;
+
+    if(Outer.PlayerCamera.CameraStyle == 'FreeFlight')
+    {
+        Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+        ViewRotation.Pitch = 0;
+        Extent = vect(2, 2, 2);
+        HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (2500 * vect(0, 0, -1)), ViewLocation, true, Extent);
+        if(HitActor == none)
+        {
+            return;
+        }
+        if((HitNormal Dot vect(0, 0, 1)) < 0.25)
+        {
+            return;
+        }
+        HitLocation += (HitNormal * 4);
+        Outer.ViewTarget.SetLocation(HitLocation);
+        Outer.SetRotation(ViewRotation);
+        Outer.Pawn.Velocity = vect(0, 0, 0);
+        Outer.Pawn.Acceleration = vect(0, 0, 0);
+        if(TdPawn(Outer.Pawn) != none)
+        {
+            TdPawn(Outer.Pawn).SetMove(1);
+            TdPawn(Outer.Pawn).SetCollision(TdPawn(Outer.Pawn).bCollideActors, true);
+            TdPawn(Outer.Pawn).bCollideWorld = true;
+            TdPawn(Outer.Pawn).SetFirstPerson(true);
+        }
+        Outer.bIgnoreMoveInput = 0;
+        Outer.bIgnoreLookInput = 0;
+        Outer.SetCameraMode('FirstPerson');        
+    }
+    else
+    {
+        if(!Outer.bGodMode && !Outer.bJesusMode)
+        {
+            return;
+        }
+        if(TdPlayerCamera(Outer.PlayerCamera) != none)
+        {
+            Outer.SetCameraMode('FreeFlight');
+            TdPlayerCamera(Outer.PlayerCamera).FreeflightPosition = Outer.Pawn.Location;
+            TdPlayerCamera(Outer.PlayerCamera).FreeflightRotation = Outer.Pawn.Rotation;
+            Outer.bIgnoreMoveInput = 1;
+            Outer.bIgnoreLookInput = 1;
+            if(TdPawn(Outer.Pawn) != none)
+            {
+                TdPawn(Outer.Pawn).SetFirstPerson(false);
             }
         }
     }
-    
-    // If no active scene was found, we load a dummy UIScene.
-    if (UI == none)
+}
+
+exec function ShowClosest()
+{
+    local private TdBotPawn P, closest;
+    local private float MinDist;
+    local private Vector ViewLocation;
+    local private Rotator ViewRotation;
+
+    MinDist = 9999999;
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
     {
-        UI = TdUIScene(class'TdHUDContent'.static.GetUISceneByName('TdLoadIndicator'));
+        if(VSize(ViewLocation - P.Location) < MinDist)
+        {
+            MinDist = VSize(ViewLocation - P.Location);
+            closest = P;
+        }        
+    }    
+    closest.bDebugOutput = true;
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        if(P != closest)
+        {
+            P.bDebugOutput = false;
+        }        
+    }    
+}
+
+exec function ShowAll()
+{
+    local private TdBotPawn P;
+
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        P.bDebugOutput = true;        
+    }    
+}
+
+exec function Cycle()
+{
+    local private TdBotPawn P, Current, Next;
+
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        if(Current == none)
+        {
+            if(P.bDebugOutput)
+            {
+                Current = P;
+            }
+            continue;
+        }
+        Next = P;
+        break;        
+    }    
+    if(Next == none)
+    {
+        foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+        {
+            Next = P;
+            break;            
+        }        
     }
-    
-    return UI;
+    Current.bDebugOutput = false;
+    Next.bDebugOutput = true;
+}
+
+exec function pp()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(1000000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        HitLocation += (HitNormal * 40);
+        enemyPos = HitLocation;
+        Outer.ClientMessage("Cover Debug: Enemy pos has been set");
+        Outer.Pawn.DrawDebugLineTime(enemyPos - vect(30, 0, 0), enemyPos + vect(30, 0, 0), 0, byte(255), 0, 2);
+        Outer.Pawn.DrawDebugLineTime(enemyPos - vect(0, 30, 0), enemyPos + vect(0, 30, 0), 0, byte(255), 0, 2);
+    }
+}
+
+exec function dc()
+{
+    local private CoverLink Link;
+    local private int idx;
+    local private Vector EnemyDir;
+    local private Actor HitActor;
+    local private Vector HitNormal, botPos, ViewLocation;
+    local private Rotator ViewRotation;
+
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    HitActor = Outer.Trace(botPos, HitNormal, ViewLocation + (float(1000000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        botPos += (HitNormal * 40);
+        Outer.ClientMessage("Cover Debug: Bot pos has been set");
+        Outer.Pawn.DrawDebugLineTime(botPos - vect(30, 0, 0), botPos + vect(30, 0, 0), 0, byte(255), 0, 2);
+        Outer.Pawn.DrawDebugLineTime(botPos - vect(0, 30, 0), botPos + vect(0, 30, 0), 0, byte(255), 0, 2);
+        Outer.Pawn.DrawDebugLineTime(enemyPos - vect(30, 0, 0), enemyPos + vect(30, 0, 0), byte(255), 0, 0, 2);
+        Outer.Pawn.DrawDebugLineTime(enemyPos - vect(0, 30, 0), enemyPos + vect(0, 30, 0), byte(255), 0, 0, 2);
+        EnemyDir = Normal(enemyPos - botPos);
+        Outer.Pawn.DrawDebugLineTime(botPos, botPos + (EnemyDir * float(300)), 0, 0, byte(255), 2);
+        Link = Outer.WorldInfo.CoverList;
+        J0x268:
+
+        if(Link != none)
+        {
+            idx = 0;
+            J0x27A:
+
+            if(idx < Link.Slots.Length)
+            {
+                if(DebugController.CurrentCover.PrototypeIsCoverValid(enemyPos, Link, idx))
+                {
+                    Outer.Pawn.DrawDebugLineTime(Link.GetSlotLocation(idx), Link.GetSlotLocation(idx) + vect(0, 0, 100), byte(255), 0, 0, 3);
+                }
+                idx++;
+                goto J0x27A;
+            }
+            Link = Link.NextCoverLink;
+            goto J0x268;
+        }
+    }
+}
+
+exec function PS()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(1000000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        HitLocation += (HitNormal * 40);
+        pP1 = HitLocation;
+        if(DebugController == none)
+        {
+            SetDebugControllers();
+        }
+        oldPos = DebugController.Pawn.Location;
+        DebugController.Pawn.SetLocation(pP1);
+        DebugController.MoveTarget = none;
+        DebugController.MovePoint = vect(0, 0, 0);
+        Outer.ClientMessage("Pathfinding Debug: Position 1 has been set");
+        Outer.Pawn.DrawDebugLineTime(pP1 - vect(30, 0, 0), pP1 + vect(30, 0, 0), 0, byte(255), 0, 1);
+        Outer.Pawn.DrawDebugLineTime(pP1 - vect(0, 30, 0), pP1 + vect(0, 30, 0), 0, byte(255), 0, 1);
+    }
+}
+
+exec function pe()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+    local private bool Success;
+    local private NavigationPoint MoveGoal;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(1000000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        HitLocation += (HitNormal * 40);
+        pP2 = HitLocation;
+        MoveGoal = DebugController.Team.GetNearestNavToPoint(pP2);
+        if(Outer.Pawn.Anchor != none)
+        {
+            Outer.Pawn.DrawDebugSphereTime(Outer.Pawn.Anchor.Location, 10, 10, byte(255), 0, 0, 5);
+        }
+        if(MoveGoal != none)
+        {
+            Success = DebugController.SetMoveGoal(MoveGoal);
+            ClientMessage("NearestNavPoint:" @ string(MoveGoal));
+            Outer.Pawn.DrawDebugSphereTime(MoveGoal.Location, 10, 10, 0, 0, byte(255), 5);            
+        }
+        else
+        {
+            Success = DebugController.SetMovePoint(pP2);
+            Outer.Pawn.DrawDebugSphereTime(pP2, 10, 10, 0, byte(255), 0, 5);
+        }
+        if(Success)
+        {
+            ClientMessage("Success");            
+        }
+        else
+        {
+            ClientMessage("Failed");
+        }
+    }
+}
+
+exec function AiRootRotation()
+{
+    AIGotoState('RootRotationState', true);
+}
+
+exec function GoHere()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+    if((HitActor != none) && OldHitLocation != HitLocation)
+    {
+        HitLocation += (HitNormal * 40);
+        DebugController.MoveToPos(HitLocation);
+        OldHitLocation = HitLocation;
+    }
+}
+
+exec function GoHereAll()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+    local private TdAIController C;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+    if((HitActor != none) && OldHitLocation != HitLocation)
+    {
+        HitLocation += (HitNormal * 40);
+        foreach Outer.WorldInfo.AllControllers(Class'TdAIController', C)
+        {
+            C.MoveToPos(HitLocation);            
+        }        
+        OldHitLocation = HitLocation;
+    }
+}
+
+exec function MoveStraightHere()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        HitLocation += (HitNormal * 40);
+        if(DebugController.PointReachable(HitLocation))
+        {
+            DebugController.MoveStraightToPos(HitLocation);
+        }
+    }
+}
+
+exec function RunStraightHere()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        HitLocation += (HitNormal * 40);
+        if(DebugController.PointReachable(HitLocation))
+        {
+            DebugController.Pawn.SetWalking(false);
+            DebugController.MoveStraightToPos(HitLocation);
+        }
+    }
+}
+
+exec function RunHere()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    if(true)
+    {
+        Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+        HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+        if((HitActor != none) && OldHitLocation != HitLocation)
+        {
+            HitLocation += (HitNormal * 40);
+            DebugController.RunToPos(HitLocation);
+            OldHitLocation = HitLocation;
+        }
+    }
+}
+
+exec function HeadFocus(bool State)
+{
+    local private TdBotPawn IteratedActor;
+
+    foreach Outer.AllActors(Class'TdBotPawn', IteratedActor)
+    {
+        IteratedActor.myController.HeadFocus.PushEnabled(State);        
+    }    
+}
+
+exec function SetHeadFocusOnPlayer()
+{
+    local private TdBotPawn IteratedActor;
+
+    foreach Outer.AllActors(Class'TdBotPawn', IteratedActor)
+    {
+        IteratedActor.myController.HeadFocus.FocusOnActor(IteratedActor.myController.Enemy, vect(0, 0, 70));
+        IteratedActor.myController.HeadFocus.PushEnabled(true);        
+    }    
+}
+
+exec function MoveAIHere()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        HitLocation += (HitNormal * 100);
+        DebugController.Pawn.SetLocation(HitLocation);
+    }
+}
+
+exec function ClearScreenLog()
+{
+    local private TdBotPawn P;
+
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        P.myController.ClearScreenLog();        
+    }    
+}
+
+exec function ScreenLogFilter(name C)
+{
+    local private TdBotPawn P;
+
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        P.myController.ToggleScreenLogFilter(C);        
+    }    
+}
+
+exec function AILogFilter(name C)
+{
+    local private TdBotPawn P;
+
+    foreach Outer.WorldInfo.AllPawns(Class'TdBotPawn', P)
+    {
+        P.myController.ToggleAILogFilter(C);        
+    }    
+}
+
+exec function TestReachable()
+{
+    local private Actor HitActor;
+    local private Vector HitNormal, HitLocation, ViewLocation;
+    local private Rotator ViewRotation;
+
+    if(DebugController == none)
+    {
+        SetDebugControllers();
+    }
+    Outer.GetPlayerViewPoint(ViewLocation, ViewRotation);
+    HitActor = Outer.Trace(HitLocation, HitNormal, ViewLocation + (float(10000) * vector(ViewRotation)), ViewLocation, true);
+    if(HitActor != none)
+    {
+        DebugController.DrawDebugSphereTime(HitLocation, 10, 10, 0, byte(255), 0, 2);
+        HitLocation += (HitNormal * 100);
+        if(DebugController.PointReachable(HitLocation))
+        {
+            ClientMessage("Reachable: YES!!!", 'None');            
+        }
+        else
+        {
+            ClientMessage("Reachable: NO!!!", 'None');
+        }
+    }
+}
+
+exec function Roll()
+{
+    if((ActiveActor != none) && TdBotPawn(ActiveActor) != none)
+    {
+        ActiveActor.SetMove(56);
+    }
+}
+
+exec function ResetAI()
+{
+    local private TdBotPawn IteratedActor;
+
+    foreach Outer.AllActors(Class'TdBotPawn', IteratedActor)
+    {
+        IteratedActor.myController.ResetAI();        
+    }    
+}
+
+exec function SpawnAt(Vector pos)
+{
+    if(!Outer.bGodMode)
+    {
+        God();
+    }
+    if(!Outer.IsPaused())
+    {
+        Outer.WorldInfo.Game.TdPause();
+    }
+    Outer.Pawn.SetLocation(pos);
+}
+
+exec function Training()
+{
+    SpawnAt(vect(-1959, 8909, -200));
+}
+
+exec function Atrium()
+{
+    SpawnAt(vect(-1607, 23482, 1693));
+}
+
+exec function subway()
+{
+    SpawnAt(vect(2928, -12080, -846));
+}
+
+exec function Platform()
+{
+    SpawnAt(vect(-512, -4736, -1102));
+}
+
+exec function Helicopter()
+{
+    SpawnAt(vect(-19489, -39218, -1540));
+}
+
+exec function rb()
+{
+    SpawnAt(vect(1136, -13503, 5968));
+}
+
+exec function Boss(int stage)
+{
+    local private TdAIController P;
+
+    foreach Outer.WorldInfo.AllControllers(Class'TdAIController', P)
+    {
+        P.SetBossStage(stage);        
+    }    
+}
+
+exec function Stefan()
+{
+    SetDebugControllers();
+    ClientMessage(("Stefan:" @ string(bStefan)) @ string(aPawn));
+    if(!bStefan)
+    {        
+        aPawn.ConsoleCommand("SetActiveActor 1");        
+        aPawn.ConsoleCommand("SetShowDebug true");        
+        aPawn.ConsoleCommand("SetShowAnimTimeLine 1");        
+    }
+    else
+    {        
+        aPawn.ConsoleCommand("SetShowDebug false");        
+        aPawn.ConsoleCommand("SetShowAnimTimeLine 0");
+    }
+    bStefan = !bStefan;
+}
+
+exec function ShowAIDebug()
+{
+    SetDebugControllers();    
+    aPawn.ConsoleCommand("SetShowDebug true");    
+    aPawn.ConsoleCommand("SetShowDebug true AI");    
+    aPawn.ConsoleCommand("SetShowDebug true AIText");    
+    aPawn.ConsoleCommand("SetShowDebug true AIMisc");
+}
+
+exec function TdToggleSlomo()
+{
+    if((Outer.WorldInfo.TimeDilation != 1) && !Outer.IsPaused())
+    {
+        Outer.WorldInfo.Game.SetGameSpeed(1);        
+    }
+    else
+    {
+        Outer.WorldInfo.Game.SetGameSpeed(0.1);
+    }
+}
+
+exec function FootPlacement(bool bEnable)
+{
+    if(ActiveActor == none)
+    {
+        return;
+    }
+    ActiveActor.bEnableFootPlacement = bEnable;
+}
+
+//exec function LevelCompleted(int Index, float Time)
+//{
+//    Outer.OnLevelCompleted(Index, Time);
+//}
+
+exec function IsLevelUnlocked(int Index)
+{
+    local private TdProfileSettings Profile;
+
+    Profile = Outer.GetProfileSettings();
+    if(Profile != none)
+    {
+        if(Profile.IsLevelUnlocked(Index))
+        {
+            ClientMessage(("Level" @ string(Index)) @ "Unlocked");            
+        }
+        else
+        {
+            ClientMessage(("Level" @ string(Index)) @ " is not Unlocked");
+        }
+    }
+}
+
+exec function IsBagFound(int Index)
+{
+    local private TdProfileSettings Profile;
+
+    Profile = Outer.GetProfileSettings();
+    if(Profile != none)
+    {
+        if(Profile.IsHiddenBagFound(Index))
+        {
+            ClientMessage(("Bag" @ string(Index)) @ "Found");            
+        }
+        else
+        {
+            ClientMessage(("Bag" @ string(Index)) @ " is not found!");
+        }
+    }
+}
+
+exec function UnlockTT(int Index)
+{
+    local private TdProfileSettings Profile;
+
+    Profile = Outer.GetProfileSettings();
+    if(Profile != none)
+    {
+        if(Profile.UnlockTTStretch(Index))
+        {
+            ClientMessage(("Stretch" @ string(Index)) @ "Unlocked");            
+        }
+        else
+        {
+            ClientMessage("Failed To Unlocked Stretch" @ string(Index));
+        }
+    }
+}
+
+exec function CP()
+{
+    local private TdProfileSettings Profile;
+    local private string CP1, CP2;
+
+    Profile = Outer.GetProfileSettings();
+    if(Profile != none)
+    {
+        Profile.GetLastSavedMap(CP1);
+        Profile.GetLastSavedCheckpoint(CP2);
+        ClientMessage((("LastSavedMap:" @ CP1) @ "LastSavedCP:") @ CP2);
+    }
+}
+
+exec function IsTTUnlocked(int Index)
+{
+    local private TdProfileSettings Profile;
+
+    Profile = Outer.GetProfileSettings();
+    if(Profile != none)
+    {
+        if(Profile.IsTTStretchUnlocked(Index))
+        {
+            ClientMessage(("Stretch" @ string(Index)) @ " is Unlocked");            
+        }
+        else
+        {
+            ClientMessage(("Stretch" @ string(Index)) @ " is not Unlocked");
+        }
+    }
+}
+
+exec function WriteTTTime(int Stretch, int NumIntermediateTimes)
+{
+    local private int idx;
+    local private float TotalTime;
+    local private array<private float> IntermediateTimes;
+
+    TotalTime = 0;
+    IntermediateTimes.Insert(0, NumIntermediateTimes);
+    idx = 0;
+    J0x1E:
+
+    if(idx < NumIntermediateTimes)
+    {
+        IntermediateTimes[idx] = FRand() * 10;
+        ClientMessage("Creating intermediate time:" @ string(IntermediateTimes[idx]));
+        TotalTime += IntermediateTimes[idx];
+        idx++;
+        goto J0x1E;
+    }
+    ClientMessage("Creating TotalTime time:" @ string(TotalTime));
+    if(Outer.GetProfileSettings().SetTTTimeForStretch(byte(Stretch), TotalTime, IntermediateTimes))
+    {
+        ClientMessage("Wrote intermediate times");        
+    }
+    else
+    {
+        ClientMessage("Failed to write intermediate times");
+    }
+}
+
+exec function ReadTTTime(int Stretch)
+{
+    local private int idx;
+    local private float TotalTime;
+    local private array<private float> IntermediateTimes;
+
+    if(Outer.GetProfileSettings().GetTTTimeForStretch(byte(Stretch), TotalTime, IntermediateTimes))
+    {
+        ClientMessage("TotalTime=" @ string(TotalTime));
+        idx = 0;
+        J0x56:
+
+        if(idx < IntermediateTimes.Length)
+        {
+            ClientMessage((("IntermediateTime" $ string(idx)) $ "=") @ string(IntermediateTimes[idx]));
+            idx++;
+            goto J0x56;
+        }        
+    }
+    else
+    {
+        ClientMessage("Failed to get intermediate times");
+    }
+}
+
+exec function DefaultProfile()
+{
+    Outer.GetProfileSettings().SetToDefaults();
+}
+
+exec function SaveProfile()
+{
+    Outer.OnlinePlayerData.SaveProfileData();
 }
 
 defaultproperties

@@ -11,7 +11,7 @@ var TdPlayerController  SpeedrunController;
 var bool              bLoadedTimeFromSave;
 var int               SkipTicks;
 
-var string            ShardTwoCompleteMarker;
+var int               RunCompleteMarker;
 var bool              bFinalTimeLocked;
 
 // Trainer, macro, speed variables
@@ -80,7 +80,7 @@ event PostBeginPlay()
     {
         GameData.TimeAttackClock = 0;
         bFinalTimeLocked = false;
-        ShardTwoCompleteMarker = "69StarsInProgress";
+        RunCompleteMarker = 696969;
         SaveLoad.SaveData("FinalTimeLocked", "false");
     }
     
@@ -94,7 +94,6 @@ event PostBeginPlay()
     }
 
     ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1000,Y=61)");
-    //ConsoleCommand("PrepareRace");
 }
 
 function Tick(float DeltaTime)
@@ -150,7 +149,7 @@ function Tick(float DeltaTime)
         if (!bFinalTimeLocked && CheckFinalTTCompletion())
         {
             bFinalTimeLocked = true;
-            ShardTwoCompleteMarker = "69StarsCompleted";
+            RunCompleteMarker = 969696;
             SaveLoad.SaveData("FinalTimeLocked", "true");
         }
     }
@@ -159,17 +158,6 @@ function Tick(float DeltaTime)
     {
         GameData.TimeAttackClock += RealDeltaTime;
     }
-}
-
-event Destroyed()
-{
-    if (SaveLoad == none)
-    {
-         SaveLoad = new class'SaveLoadHandler';
-    }
-    SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
-    
-    super.Destroyed();
 }
 
 function bool CheckFinalTTCompletion()
@@ -199,6 +187,11 @@ function DrawLivingHUD()
         DrawRaceTimer(Game);
         DrawStarRating(Game);
         DrawTrainerItems();
+
+        if (CheckCheatsTrainerMode())
+        {
+            DrawCheatsTrainerMessage();
+        }
     }
 }
 
@@ -226,6 +219,48 @@ function DrawRaceTimer(TdSPTimeTrialGame Game)
     RTime = GameData.TimeAttackClock;
     LRT = "69* - " $ GetTimeString(RTime);
     DrawTextWithOutLine(pos.X, pos.Y + (YL * 0.8), DSOffset, DSOffset, LRT, WhiteColor);
+}
+
+function DrawCheatsTrainerMessage()
+{
+    local float Y, ShadowOffset;
+
+    ShadowOffset = 2.0;
+    Canvas.Font = Class'Engine'.static.GetMediumFont();
+
+    Y = Canvas.SizeY * 0.10;
+    Canvas.bCenter = true;
+
+    // Draw shadow
+    Canvas.SetPos(0 + ShadowOffset, Y + ShadowOffset);
+    Canvas.DrawColor = FontDSColor;
+    Canvas.DrawColor.A *= Square(FadeAmount);
+    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+
+    // Draw main text
+    Canvas.SetPos(0, Y);
+    Canvas.DrawColor = RedColor;
+    Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+}
+
+function bool CheckCheatsTrainerMode()
+{
+    if (SpeedrunController.CheatClass == Class'MirrorsEdgeTweaksScripts.MirrorsEdgeCheatManager')
+    {
+        return true;
+    }
+}
+
+event Destroyed()
+{
+    if (SaveLoad == none)
+    {
+         SaveLoad = new class'SaveLoadHandler';
+    }
+    SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
+    
+    super.Destroyed();
 }
 
 // Trainer HUD, speed, etc.
@@ -297,12 +332,12 @@ function DrawTrainerItems()
     local float RoundedMaxSpeed, RoundedMaxHeight, RoundedLastJumpZ, RoundedZDelta;
     local float Yaw, Pitch;
     local string YawText, PitchText;
-    local string HealthText, ReactionTimeEnergyText, MoveStateText;
+    local string HealthText, MoveStateText;
     local string MaxVelocityText, LocationTextX, LocationTextY, LocationTextZ;
     local string MaxHeightText, LastJumpZText, ZDeltaText;
     local float MacroElapsedTime;
     local EMovement MoveState;
-    local float PlayerHealth, ReactionTimeEnergy;
+    local float PlayerHealth;
     
     CurrentTime = WorldInfo.TimeSeconds;
 
@@ -322,7 +357,6 @@ function DrawTrainerItems()
 
         PlayerHealth = PlayerPawn.Health;
         MoveState = PlayerPawn.MovementState;
-        ReactionTimeEnergy = SpeedrunController.ReactionTimeEnergy;
 
         if (PlayerPawn.Controller != None)
         {
@@ -350,7 +384,6 @@ function DrawTrainerItems()
         MacroElapsedTime = (bIsMacroTimerActive) ? (CurrentTime - MacroStartTime) : 0.0;
 
         HealthText = "H = " $ int(PlayerHealth) $ "%";
-        ReactionTimeEnergyText = "RT = " $ int(ReactionTimeEnergy) $ "%";
         MoveStateText = "MS = " $ (Left(string(MoveState), 5) == "MOVE_" ? Mid(string(MoveState), 5) : string(MoveState));
         MaxVelocityText = "VT = " $ FormatFloat(RoundedMaxSpeed) $ " km/h";
         LocationTextX = "X = " $ FormatFloat(RoundedX);
@@ -369,8 +402,7 @@ function DrawTrainerItems()
 
         if (ShowTrainerHUDItems)
         {
-            DrawTextWithShadow(HealthText, X, Y - 15 * 25.0, ShadowOffset);
-            DrawTextWithShadow(ReactionTimeEnergyText, X, Y - 14 * 25.0, ShadowOffset);
+            DrawTextWithShadow(HealthText, X, Y - 14 * 25.0, ShadowOffset);
             DrawTextWithShadow(MoveStateText, X, Y - 13 * 25.0, ShadowOffset);
             DrawTextWithShadow(MaxVelocityText, X, Y - 11 * 25.0, ShadowOffset);
             DrawTextWithShadow(LocationTextX, X, Y - 9 * 25.0, ShadowOffset);
@@ -445,7 +477,7 @@ exec function ToggleMacroFeedback()
 defaultproperties
 {
     RaceTimerPos=(X=1000,Y=55)
-    ShardTwoCompleteMarker = "69StarsInProgress"
+    RunCompleteMarker = 696969
     ShowTrainerHUDItems = false;
     ShowMacroFeedback = false;
 }
