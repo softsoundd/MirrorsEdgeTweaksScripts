@@ -33,6 +33,8 @@ simulated event PostBeginPlay()
     }
     
     SetTimer(0.001, false, 'SetupSofTimerHUD'); // fallback in case we didn't access a game mode through the menu buttons
+
+    SetTimer(1, false, 'CustomTimeTrialOrder');
 }
 
 function SofTimerMessage()
@@ -189,6 +191,11 @@ function SetupSofTimerHUD()
             ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1056,Y=61)"); // default position of tt star rating hud if we're done with 69 stars
         }
     }
+}
+
+function CustomTimeTrialOrder()
+{
+    ConsoleCommand("exec timetrialorder");
 }
 
 defaultproperties

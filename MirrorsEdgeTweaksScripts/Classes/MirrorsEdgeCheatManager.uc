@@ -162,6 +162,7 @@ exec function ListAllBots()
     ClientMessage("\"Support\"");
     ClientMessage("\"PursuitCop\"");
     ClientMessage("\"CelesteBoss\"");
+    ClientMessage("\"CelesteSniper\"");
     ClientMessage("\"Jacknife\"");
     ClientMessage(" ");
     ClientMessage("Optionally, type the following custom skins as a second parameter:");
@@ -2906,6 +2907,8 @@ exec function SpawnBot(string PawnClassName, string AITemplatePath, optional str
     {
         PlayerRelativeSpawnLocation = Pawn.Location + Vector(Pawn.Rotation) * 200;
         PlayerRelativeSpawnRotation = Pawn.Rotation;
+        //PlayerRelativeSpawnLocation = vect(20389.36, -2804.10, 2525.00);
+        //PlayerRelativeSpawnRotation = rot(0,0,0);
     }
     else
     {
@@ -3104,6 +3107,16 @@ exec function CelesteBoss(optional string CustomSkeletalMesh, optional bool bGiv
     SpawnBot(
         "TdSpBossContent.TdBotPawn_Celeste",
         "TdGame.Default__AITemplate_Celeste",
+        CustomSkeletalMesh,
+        bGiveAI
+    );
+}
+
+exec function CelesteSniper(optional string CustomSkeletalMesh, optional bool bGiveAI)
+{
+    SpawnBot(
+        "TdSpBossContent.TdBotPawn_SniperCeleste",
+        "TdGame.Default__AITemplate_SniperCeleste",
         CustomSkeletalMesh,
         bGiveAI
     );

@@ -14,6 +14,9 @@ var int               SkipTicks;
 var int               RunCompleteMarker;
 var bool              bFinalTimeLocked;
 
+var string StartMap;
+var string EndMap;
+
 // Trainer, macro, speed variables
 var vector CurrentLocation;
 var rotator CurrentRotation;
@@ -36,6 +39,22 @@ var float TrainerHUDMessageDuration;
 var bool ShowTrainerHUDItems;
 var bool ShowMacroFeedback;
 
+exec function SetTimeTrialOrder(string Start, string End)
+{
+    if (SaveLoad == none)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
+    SaveLoad.SaveData("StartMap", (Start));
+    SaveLoad.SaveData("EndMap", (End));
+
+    StartMap = SaveLoad.LoadData("StartMap");
+    EndMap = SaveLoad.LoadData("EndMap");
+
+    SpeedrunController.ClientMessage(StartMap);
+    SpeedrunController.ClientMessage(EndMap);
+}
 
 event PostBeginPlay()
 {
@@ -76,7 +95,19 @@ event PostBeginPlay()
         }
     }
 
-    if (MapName == "TT_TutorialA01_p")
+    StartMap = SaveLoad.LoadData("StartMap");
+    if (StartMap == "")
+    {
+        StartMap = "TT_TutorialA01_p";
+    }
+
+    EndMap = SaveLoad.LoadData("EndMap");
+    if (EndMap == "")
+    {
+        EndMap = "TT_ScraperB01_p";
+    }
+
+    if (MapName == StartMap)
     {
         GameData.TimeAttackClock = 0;
         bFinalTimeLocked = false;
@@ -134,7 +165,7 @@ function Tick(float DeltaTime)
 
     MapName = WorldInfo.GetMapName();
     
-    if (!bLoadedTimeFromSave && MapName != "TT_TutorialA01_p")
+    if (!bLoadedTimeFromSave && MapName != StartMap)
     {
         SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
         if (SavedTimeStr != "")
@@ -144,7 +175,7 @@ function Tick(float DeltaTime)
         bLoadedTimeFromSave = true;
     }
 
-    if (MapName == "TT_ScraperB01_p")
+    if (MapName == EndMap)
     {
         if (!bFinalTimeLocked && CheckFinalTTCompletion())
         {
@@ -256,7 +287,7 @@ event Destroyed()
 {
     if (SaveLoad == none)
     {
-         SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandler';
     }
     SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
     
@@ -468,9 +499,33 @@ exec function ToggleTrainerHUD()
     SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
 }
 
+exec function TrainerHUDOn()
+{
+    ShowTrainerHUDItems = true;
+    SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
+}
+
+exec function TrainerHUDOff()
+{
+    ShowTrainerHUDItems = false;
+    SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
+}
+
 exec function ToggleMacroFeedback()
 {
     ShowMacroFeedback = !ShowMacroFeedback;
+    SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
+}
+
+exec function MacroFeedbackOn()
+{
+    ShowMacroFeedback = true;
+    SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
+}
+
+exec function MacroFeedbackOff()
+{
+    ShowMacroFeedback = false;
     SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
 }
 

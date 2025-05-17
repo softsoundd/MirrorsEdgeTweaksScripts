@@ -12,6 +12,7 @@ var transient string    SpeedUnitString;
 var transient int       MeasurementUnits;
 var bool                bTimerVisible;
 var TdPlayerController  SpeedrunController;
+var TdProfileSettings   Profile;
 
 var bool              bLoadedTimeFromSave;
 var bool              bUndeclaredLoadActive;
@@ -35,7 +36,8 @@ var bool              bEnteredLoadingBay;
 // Chapter 9 (Scraper) variables.
 var bool              bHeliReadyForGrab;
 var bool              bFinalTimeLocked;
-var int               RunCompleteMarker;
+var int               RunCompleteASLMarker;
+var bool              RunComplete;
 
 // These arrays list the streaming level package names that get loaded and should increment the timer (RTA).
 // Any level NOT declared here is assumed to be LRT and is caught by IsLoadingLevel in the ticking function.
@@ -65,6 +67,11 @@ var array<string>     DeclaredUnloadPackages_Factory;   // Chapter 6 (Factory_p)
 var array<string>     DeclaredUnloadPackages_Boat;      // Chapter 7 (Boat_p)
 var array<string>     DeclaredUnloadPackages_Convoy;    // Chapter 8 (Convoy_p)
 var array<string>     DeclaredUnloadPackages_Scraper;   // Chapter 9 (Scraper_p)
+
+var bool              HundredPercentMode;
+var bool              ShowBagHUD;
+var bool              bBagPopUpCalled;
+var bool              bWasCinematicMode;
 
 var bool              SoundFix;
 
@@ -106,6 +113,7 @@ event PostBeginPlay()
     local string MallFlagStr;
     local string LoadingBayFlagStr;
     local string FinalTimeFlag;
+    local string SavedShowBagHUD;
 
     super.PostBeginPlay();
     DataStoreManager = Class'UIInteraction'.static.GetDataStoreClient();
@@ -122,13 +130,27 @@ event PostBeginPlay()
 
     CacheMeasurementUnitInfo();
 
+    HundredPercentMode = (SaveLoad.LoadData("HundredPercentMode") == "") ? false : bool(SaveLoad.LoadData("HundredPercentMode"));
     SoundFix = (SaveLoad.LoadData("SoundFix") == "") ? false : bool(SaveLoad.LoadData("SoundFix"));
 
-    // Load trainer HUD visibility
+    // Speedrun HUD elements
     bTimerVisible = (SaveLoad.LoadData("TimerHUDVisible") == "") ? true : bool(SaveLoad.LoadData("TimerHUDVisible"));
     ShowSpeed = (SaveLoad.LoadData("ShowSpeed") == "") ? false : bool(SaveLoad.LoadData("ShowSpeed"));
     ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
     ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
+
+    SavedShowBagHUD = SaveLoad.LoadData("ShowBagHUD");
+
+    if (SavedShowBagHUD == "")
+    {
+        ShowBagHUD = HundredPercentMode;
+    }
+    else
+    {
+        ShowBagHUD = bool(SavedShowBagHUD);
+    }
+    bBagPopUpCalled = false;
+    bWasCinematicMode = SpeedrunController.bCinematicMode;
     
     // Initialise the max values and timers
     MaxVelocity = 0.0;
@@ -160,8 +182,14 @@ event PostBeginPlay()
         }
         // Reset any monitoring from previous runs
         bFinalTimeLocked = false;
-        RunCompleteMarker = 123456789;
+        RunCompleteASLMarker = 123456789;
         SaveLoad.SaveData("FinalTimeLocked", "false");
+
+        if (HundredPercentMode)
+        {
+            SetCollectedBagsCount(0);
+        }
+
         SaveLoad.SaveData("AfterElevatorCrashTriggered", "false");
         SaveLoad.SaveData("MallUnloadRemoved", "false");
         SaveLoad.SaveData("LoadingBayEntered", "false");
@@ -725,6 +753,7 @@ function PlayerOwnerRestart()
 {
     super.PlayerOwnerRestart();
     SkipTicks = 3;
+    bBagPopUpCalled = false;
 }
 
 // Tick: Main loop updates timer and saves state when needed
@@ -748,14 +777,49 @@ function Tick(float DeltaTime)
         return;
     }
 
+    if (SaveLoad == none)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
     if (SpeedrunController == none && PlayerOwner != none)
     {
         SpeedrunController = TdPlayerController(PlayerOwner);
     }
 
-    if (SaveLoad == none)
+    if (HundredPercentMode && ShowBagHUD)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        if (SpeedrunController.bCinematicMode)
+        {
+            PopUpDuration = 8;
+        }
+        else if (PopUpType == PUT_Sniper)
+        {
+            PopUpDuration = 4;
+        }
+        else
+        {
+            PopUpDuration = 999999;
+        }
+
+        if (bBagPopUpCalled && PopUpType != PUT_Bag)
+        {
+            bBagPopUpCalled = false;
+        }
+
+        if (!bBagPopUpCalled && !SpeedrunController.bCinematicMode)
+        {
+            SpeedrunController.CallPopUp(PUT_Bag, 999999);
+            bBagPopUpCalled = true;
+        }
+    }
+    else
+    {
+        if (bBagPopUpCalled)
+        {
+            SpeedrunController.CallPopUp(PUT_None, 1.0);
+            bBagPopUpCalled = false;
+        }
     }
 
     if (!bLoadedTimeFromSave)
@@ -954,12 +1018,27 @@ function Tick(float DeltaTime)
             DeclaredLoadPackages_Scraper.AddItem("Scraper_Heli_Bac"); // video surveillance
         }
 
-        // Run completion marker
+        // Run completion
         if (!bFinalTimeLocked && CheckHeliInteractionComplete())
         {
-            bFinalTimeLocked = true;
-            RunCompleteMarker = 987654321;
-            SaveLoad.SaveData("FinalTimeLocked", "true");
+            if (!HundredPercentMode)
+            {
+                RunComplete = true;
+            }
+            else
+            {
+                if (Profile.NumBagsFoundTotal() == 30)
+                {
+                    RunComplete = true;
+                }
+            }
+
+            if (RunComplete)
+            {
+                bFinalTimeLocked = true;
+                RunCompleteASLMarker = 987654321;
+                SaveLoad.SaveData("FinalTimeLocked", "true");
+            }
         }
     }
 
@@ -1510,6 +1589,75 @@ function bool CheckHeliInteractionComplete()
     return false;
 }
 
+exec function SetCollectedBagsCount(int NumBagsToSet)
+{
+    local UIDataStore_OnlinePlayerData PlayerDataStore;
+    local UIDataProvider_OnlineProfileSettings ProfileDataProvider;
+    local int HiddenBagMaskID;
+    local int NewBagMaskValue;
+    local int MaxBagsAllowed;
+
+    MaxBagsAllowed = 30; // Based on TdProfileSettings.MAX_BAGS
+    SpeedrunController = TdPlayerController(PlayerOwner);
+
+    if (NumBagsToSet < 0)
+    {
+        NumBagsToSet = 0;
+    }
+    else if (NumBagsToSet > MaxBagsAllowed)
+    {
+        NumBagsToSet = MaxBagsAllowed;
+    }
+
+    PlayerDataStore = SpeedrunController.OnlinePlayerData;
+    if (PlayerDataStore != none)
+    {
+        ProfileDataProvider = PlayerDataStore.ProfileProvider;
+        if (ProfileDataProvider != none)
+        {
+            Profile = TdProfileSettings(ProfileDataProvider.Profile);
+        }
+    }
+
+    if (Profile == none)
+    {
+        return;
+    }
+
+    // Bags in Mirror's Edge are bitmask
+    if (NumBagsToSet == 0)
+    {
+        NewBagMaskValue = 0;
+    }
+    else if (NumBagsToSet == MaxBagsAllowed) 
+    {
+        NewBagMaskValue = (1 << MaxBagsAllowed) - 1;
+        if (MaxBagsAllowed == 31)
+        { // Max for a positive signed 32-bit int if all bits are used
+            NewBagMaskValue = 0x7FFFFFFF;
+        }
+        else if (MaxBagsAllowed >= 32)
+        {
+            NewBagMaskValue = -1;
+        }
+    }
+    else
+    {
+        NewBagMaskValue = (1 << NumBagsToSet) - 1;
+    }
+
+    HiddenBagMaskID = 1020; // TdProfileSettings.TDPID_HiddenBagMask
+
+    if (Profile.SetProfileSettingValueInt(HiddenBagMaskID, NewBagMaskValue))
+    {
+        if (PlayerDataStore != none)
+        {
+            PlayerDataStore.SaveProfileData();
+            SpeedrunController.CallPopUp(PUT_Bag, 5);
+        }
+    }
+}
+
 // DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
 function DrawLivingHUD()
 {
@@ -1531,7 +1679,7 @@ function DrawLivingHUD()
             else
             {
                 // Briefly alternate display if paused
-                if ((WorldInfo.TimeSeconds - float(int(WorldInfo.TimeSeconds))) < 0.5)
+                if ((WorldInfo.RealTimeSeconds - float(int(WorldInfo.RealTimeSeconds))) < 0.5)
                 {
                     DrawLoadRemovedTimer(Game, true); 
                 }
@@ -1697,8 +1845,6 @@ function DrawSpeed(out float PosY)
 
 function CacheMeasurementUnitInfo()
 {
-    local TdProfileSettings Profile;
-
     Profile = TdPlayerController(PlayerOwner).GetProfileSettings();
     Profile.GetProfileSettingValueId(255, MeasurementUnits);
 
@@ -1722,7 +1868,7 @@ function string FormatFloat(float Value)
     Value = abs(Value);
 
     IntPart = int(Value);
-    DecimalPart = int((Value - IntPart) * 100 + 0.5);  // Proper rounding
+    DecimalPart = int((Value - IntPart) * 100 + 0.5); // Proper rounding
 
     DecimalPartString = (DecimalPart < 10) 
                         ? ("0" $ string(DecimalPart))
@@ -1964,9 +2110,33 @@ exec function ToggleMacroFeedback()
     SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
 }
 
+exec function ToggleBagHUD()
+{
+    ShowBagHUD = !ShowBagHUD;
+    SaveLoad.SaveData("ShowBagHUD", string(ShowBagHUD));
+}
+
+exec function BagHUDOn()
+{
+    ShowBagHUD = true;
+    SaveLoad.SaveData("ShowBagHUD", string(ShowBagHUD));
+}
+
+exec function BagHUDOff()
+{
+    ShowBagHUD = false;
+    SaveLoad.SaveData("ShowBagHUD", string(ShowBagHUD));
+}
+
 exec function TimerOn()
 {
     bTimerVisible = true;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+}
+
+exec function TimerOff()
+{
+    bTimerVisible = false;
     SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
 }
 
@@ -1976,9 +2146,21 @@ exec function SpeedOn()
     SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
 }
 
+exec function SpeedOff()
+{
+    ShowSpeed = false;
+    SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
+}
+
 exec function TrainerHUDOn()
 {
     ShowTrainerHUDItems = true;
+    SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
+}
+
+exec function TrainerHUDOff()
+{
+    ShowTrainerHUDItems = false;
     SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
 }
 
@@ -1988,28 +2170,24 @@ exec function MacroFeedbackOn()
     SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
 }
 
-exec function TimerOff()
-{
-    bTimerVisible = false;
-    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
-}
-
-exec function SpeedOff()
-{
-    ShowSpeed = false;
-    SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
-}
-
-exec function TrainerHUDOff()
-{
-    ShowTrainerHUDItems = false;
-    SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
-}
-
 exec function MacroFeedbackOff()
 {
     ShowMacroFeedback = false;
     SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
+}
+
+exec function ModeAnyPercent()
+{
+    HundredPercentMode = false;
+    SaveLoad.SaveData("HundredPercentMode", string(HundredPercentMode));
+    ConsoleCommand("disconnect");
+}
+
+exec function Mode100Percent()
+{
+    HundredPercentMode = true;
+    SaveLoad.SaveData("HundredPercentMode", string(HundredPercentMode));
+    ConsoleCommand("disconnect");
 }
 
 defaultproperties
@@ -2017,9 +2195,11 @@ defaultproperties
     TimerPos=(X=1000,Y=55)
     SplitPos=(X=1000,Y=88)
     SpeedPos=(X=1060,Y=605)
-    RunCompleteMarker = 123456789
+    RunCompleteASLMarker = 123456789
     bTimerVisible = true
     ShowSpeed = false
     ShowTrainerHUDItems = false
     ShowMacroFeedback = false
+    ShowBagHUD = true
+    HundredPercentMode = false
 }

@@ -107,11 +107,6 @@ exec function AttackPress()
 
     PC = TdPlayerController(Pawn.Controller);
 
-    if(IsButtonInputIgnored())
-    {
-        return;
-    }
-
     if (myPawn != none && (myPawn.MovementState == 4 || myPawn.MovementState == 5))
     {
         if (PC.PlayerInput.PressedKeys.Find('RightMouseButton') != -1)
@@ -134,6 +129,19 @@ exec function AttackPress()
     {
         StartFire();
     }
+}
+
+exec function StartFire(optional byte FireModeNum)
+{
+    super(PlayerController).StartFire(FireModeNum);
+}
+
+function SetCinematicMode(bool bInCinematicMode, bool bHidePlayer, bool bAffectsHUD, bool bAffectsMovement, bool bAffectsTurning, bool bAffectsButtons, bool bSwitchSoundMode)
+{
+}
+
+reliable client simulated function ClientSetCinematicMode(bool bInCinematicMode, bool bAffectsMovement, bool bAffectsTurning, bool bAffectsHUD)
+{
 }
 
 // Overwritten version from TdPlayerController where we strip the bCanZoom function and movestate checks
