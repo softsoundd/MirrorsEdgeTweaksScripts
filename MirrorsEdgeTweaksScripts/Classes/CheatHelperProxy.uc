@@ -9,6 +9,7 @@ class CheatHelperProxy extends Actor;
 
 var MirrorsEdgeCheatManager CheatManagerReference;
 var MirrorsEdgeMacro MacroReference;
+var SaveFileEditor SaveFileEditorReference;
 var TdPawn Pawn;
 var bool bEnableTick;
 var string PendingCommand;
@@ -25,6 +26,11 @@ event Tick(float DeltaTime)
     if (bEnableTick && CheatManagerReference != None)
     {
         CheatManagerReference.OnTick(DeltaTime);
+    }
+
+    if (bEnableTick && SaveFileEditorReference != None)
+    {
+        SaveFileEditorReference.OnTick(DeltaTime);
     }
 }
 

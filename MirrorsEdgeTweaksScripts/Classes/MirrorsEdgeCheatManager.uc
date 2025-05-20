@@ -1663,17 +1663,17 @@ exec function PostProcess(string PropertyName, float X, optional float Y, option
     local PostProcessVolume PPVolume;
     local PlayerController PC;
     local WorldInfo WI;
+    local string Property;
     local bool bIsPropertyRecognised;
     local bool bIsVectorProperty;
     local vector VecValue;
 
+    Property = Locs(PropertyName);
+
     // Determine if this property is vector-based
-    if (PropertyName == "Highlights" || // Note - highlights act the same as ColorScale
-        PropertyName == "highlights" || 
-        PropertyName == "Midtones" ||
-        PropertyName == "midtones" ||
-        PropertyName == "Shadows" ||
-        PropertyName == "shadows")
+    if (Property == "highlights" || // Note - highlights act the same as ColorScale
+        Property == "midtones" ||
+        Property == "shadows")
     {
         bIsVectorProperty = true;
     }
@@ -1705,12 +1705,12 @@ exec function PostProcess(string PropertyName, float X, optional float Y, option
     {
         if (!bIsVectorProperty)
         {
-            if (PropertyName == "Saturation" || PropertyName == "saturation")
+            if (Property == "saturation")
             {
                 PPVolume.Settings.Scene_Desaturation = -X;
                 bIsPropertyRecognised = true;
             }
-            else if (PropertyName == "sceneinterpolation")
+            else if (Property == "sceneinterpolation")
             {
                 PPVolume.Settings.Scene_InterpolationDuration = X;
                 bIsPropertyRecognised = true;
@@ -1718,17 +1718,17 @@ exec function PostProcess(string PropertyName, float X, optional float Y, option
         }
         else
         {
-            if (PropertyName == "Highlights" || PropertyName == "highlights")
+            if (Property == "highlights")
             {
                 PPVolume.Settings.Scene_HighLights = VecValue;
                 bIsPropertyRecognised = true;
             }
-            else if (PropertyName == "Midtones" || PropertyName == "midtones")
+            else if (Property == "midtones")
             {
                 PPVolume.Settings.Scene_MidTones = VecValue;
                 bIsPropertyRecognised = true;
             }
-            else if (PropertyName == "Shadows" || PropertyName == "shadows")
+            else if (Property == "shadows")
             {
                 PPVolume.Settings.Scene_Shadows = VecValue;
                 bIsPropertyRecognised = true;
@@ -1739,12 +1739,12 @@ exec function PostProcess(string PropertyName, float X, optional float Y, option
     // Apply changes to WorldInfo global settings (usually outdoors)
     if (!bIsVectorProperty)
     {
-        if (PropertyName == "Saturation" || PropertyName == "saturation")
+        if (Property == "saturation")
         {
             WI.DefaultPostProcessSettings.Scene_Desaturation = -X;
             bIsPropertyRecognised = true;
         }
-        else if (PropertyName == "sceneinterpolation")
+        else if (Property == "sceneinterpolation")
         {
             WI.DefaultPostProcessSettings.Scene_InterpolationDuration = X;
             bIsPropertyRecognised = true;
@@ -1752,17 +1752,17 @@ exec function PostProcess(string PropertyName, float X, optional float Y, option
     }
     else
     {
-        if (PropertyName == "Highlights" || PropertyName == "highlights")
+        if (Property == "highlights")
         {
             WI.DefaultPostProcessSettings.Scene_HighLights = VecValue;
             bIsPropertyRecognised = true;
         }
-        else if (PropertyName == "Midtones" || PropertyName == "midtones")
+        else if (Property == "midtones")
         {
             WI.DefaultPostProcessSettings.Scene_MidTones = VecValue;
             bIsPropertyRecognised = true;
         }
-        else if (PropertyName == "Shadows" || PropertyName == "shadows")
+        else if (Property == "shadows")
         {
             WI.DefaultPostProcessSettings.Scene_Shadows = VecValue;
             bIsPropertyRecognised = true;
@@ -2062,16 +2062,6 @@ function ExecuteCommand(string Command)
 {
     // Use ConsoleCommand to dynamically invoke exec functions or native commands
     ConsoleCommand(Command);
-}
-
-exec function testmesh()
-{
-    local TdPawn PlayerPawn;
-
-    PlayerPawn = TdPawn(Pawn);
-
-    PlayerPawn.SetFirstPerson(false);
-    PlayerPawn.Mesh.ForceSkelUpdate();  
 }
 
 function Dolly(float DeltaTime)
@@ -3184,6 +3174,16 @@ exec function ViewClass(class<actor> aClass)
 	}
 	else
 		ViewSelf(false);
+}
+
+exec function testmesh()
+{
+    local TdPawn PlayerPawn;
+
+    PlayerPawn = TdPawn(Pawn);
+
+    PlayerPawn.SetFirstPerson(false);
+    PlayerPawn.Mesh.ForceSkelUpdate();  
 }
 
 

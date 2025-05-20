@@ -1,0 +1,626 @@
+class SaveFileEditor extends TdCheatManager;
+
+var CheatHelperProxy HelperProxy;
+var bool bIsProfileSaving;
+var TdProfileSettings Profile;
+var OnlineSubsystem OnlineSub;
+var UIDataStore_OnlinePlayerData PlayerDataStore;
+var UIDataProvider_OnlineProfileSettings ProfileDataProvider;
+
+var LocalPlayer LocPlayer;  
+var TdGameViewportClient ViewportClient;
+var TdUIInteraction UIController;
+
+exec function EnsureHelperProxy()
+{
+    if (HelperProxy == None)
+    {
+        HelperProxy = WorldInfo.Spawn(class'CheatHelperProxy');
+        HelperProxy.SaveFileEditorReference = self;
+    }
+}
+
+function OnTick(float DeltaTime)
+{
+    local OnlineProfileSettings OnlineProf;
+    local byte ControllerId;
+
+    OnlineSub = Class'GameEngine'.static.GetOnlineSubsystem();
+    ControllerId = byte(Class'UIInteraction'.static.GetPlayerControllerId(0));
+    OnlineProf = OnlineSub.PlayerInterface.GetProfileSettings(ControllerId);
+
+    if((OnlineProf != none) && OnlineProf.AsyncState == OPAS_Write)
+    {
+        if(!bIsProfileSaving)
+        {
+            bIsProfileSaving = true;
+
+            LocPlayer = LocalPlayer(Outer.Player);
+
+            if (LocPlayer.ViewportClient != none)
+            {
+                ViewportClient = TdGameViewportClient(LocPlayer.ViewportClient); 
+                if (ViewportClient != none && ViewportClient.UIController != none)
+                {
+                    UIController = TdUIInteraction(ViewportClient.UIController); 
+                    if (UIController != none)
+                    {
+                        UIController.BlockUIInput(true);
+                    }
+                }
+            }
+        }   
+    }
+    else
+    {
+        if(bIsProfileSaving)
+        {
+            bIsProfileSaving = false;
+            UIController.BlockUIInput(false);
+        }
+    }
+}
+
+exec function UnlockAllStoryLevels(optional bool bHardMode)
+{
+    local bool bSuccessSettingChanged;
+    local string DifficultyModeStr;
+    local int LevelMaskID;
+    local int FullUnlockMask;
+
+    EnsureHelperProxy();
+
+    Profile = Outer.GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("Failed to get profile settings. Could not unlock story levels.");
+        return;
+    }
+
+    // MAX_LEVELS is 10, so we have 11 unlockable states (0 to 10)
+    // Mask for all 11 levels set: (1 << 11) - 1 = 2047
+    FullUnlockMask = (1 << (10 + 1)) - 1;
+
+    if (bHardMode)
+    {
+        DifficultyModeStr = "Hard";
+        LevelMaskID = 1002; // TDPID_LevelUnlockMaskHard
+        bSuccessSettingChanged = Profile.SetProfileSettingValueInt(LevelMaskID, FullUnlockMask);
+    }
+    else
+    {
+        DifficultyModeStr = "Normal";
+        // Profile.UnlockAllLevels() internally calls SetProfileSettingValueInt(1001, -1)
+        // -1 (all bits 1) is equivalent to FullUnlockMask for a sufficient bit width
+        bSuccessSettingChanged = Profile.UnlockAllLevels();
+    }
+
+    if (bSuccessSettingChanged)
+    {
+        // Attempt to save the profile
+        if (Outer.OnlinePlayerData != none)
+        {
+            if (!Outer.OnlinePlayerData.SaveProfileData())
+            {
+                ClientMessage("Profile save failed. Changes for" @ DifficultyModeStr @ "difficulty may not persist.");
+            }
+        }
+    }
+    else
+    {
+        ClientMessage("Failed to apply settings to unlock all levels for" @ DifficultyModeStr @ "difficulty.");
+    }
+}
+
+exec function LockAllStoryLevels(optional bool bHardMode)
+{
+    local bool bSuccessSettingChanged;
+    local string DifficultyModeStr;
+    local int LevelMaskID;
+
+    EnsureHelperProxy();
+
+    Profile = Outer.GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("Failed to get profile settings. Could not lock story levels.");
+        return;
+    }
+
+    if (bHardMode)
+    {
+        DifficultyModeStr = "Hard";
+        LevelMaskID = 1002; // TDPID_LevelUnlockMaskHard
+        bSuccessSettingChanged = Profile.SetProfileSettingValueInt(LevelMaskID, 0);
+    }
+    else
+    {
+        DifficultyModeStr = "Normal";
+        // Profile.LockAllLevels() internally calls SetProfileSettingValueInt(1001, 0)
+        bSuccessSettingChanged = Profile.LockAllLevels();
+    }
+
+    if (bSuccessSettingChanged)
+    {
+        if (Outer.OnlinePlayerData != none)
+        {
+            if (!Outer.OnlinePlayerData.SaveProfileData())
+            {
+                ClientMessage("Profile save failed. Changes for" @ DifficultyModeStr @ "difficulty may not persist.");
+            }
+        }
+    }
+    else
+    {
+        ClientMessage("Failed to apply settings to lock all levels for" @ DifficultyModeStr @ "difficulty.");
+    }
+}
+
+exec function UnlockAllTimeTrials()
+{
+    EnsureHelperProxy();
+    
+    Profile = Outer.GetProfileSettings();
+
+    if (Profile != none)
+    {
+        Profile.UnLockAllTTStretches(); // This sets the relevant profile setting (ID 1150 to -1)
+
+        if (Outer.OnlinePlayerData != none)
+        {
+            if (!Outer.OnlinePlayerData.SaveProfileData())
+            {
+                ClientMessage("Profile save failed. Changes may not persist.");
+            }
+        }
+    }
+    else
+    {
+        ClientMessage("Failed to get profile settings. Could not unlock time trials.");
+    }
+}
+
+exec function LockAllTimeTrials()
+{
+    EnsureHelperProxy();
+
+    Profile = Outer.GetProfileSettings();
+
+    if (Profile != none)
+    {
+        Profile.LockAllTTStretches();
+
+        if (Outer.OnlinePlayerData != none)
+        {
+            if (!Outer.OnlinePlayerData.SaveProfileData())
+            {
+                ClientMessage("Profile save failed. Changes may not persist.");
+            }
+        }
+    }
+    else
+    {
+        ClientMessage("Failed to get profile settings. Could not lock time trials.");
+    }
+}
+
+function GhostWriteCompleteCallback(TdGhostStorageManager.EGhostStorageResult Result, optional int GhostTagReceived)
+{
+    local string ResultString;
+
+    EnsureHelperProxy();
+
+    switch (Result)
+    {
+        case 0: ResultString = "EGR_Ok (Success)"; break;
+        case 1: ResultString = "EGR_OkNoGhost"; break;
+        case 2: ResultString = "EGR_ErrorInconsistentTime"; break;
+        case 3: ResultString = "EGR_Error"; break;
+        case 4: ResultString = "EGR_IncompatibleVersion"; break;
+    }
+    if (Result == 0)
+    {
+        //ClientMessage("GhostWriteCallback: Ghost data write operation completed successfully. Result: " $ ResultString $ ". (Tag: " $ GhostTagReceived $ ")");
+    }
+    else
+    {
+        ClientMessage("GhostWriteCallback: Failed to write ghost data. Result: " $ ResultString $ ". (Tag: " $ GhostTagReceived $ ")");
+    }
+}
+
+exec function ResetAllTimeTrialTimes(optional bool b69Stars)
+{
+    local float TimeToSet;
+    local array<float> IntermediateTimesToSet;
+    local int i;
+    local int StretchIndex; // ETTStretch enum value will be used here
+    local bool bOverallSuccess;
+
+    // Ghost saving variables
+    local TdOfflineGhostStorageManager LocalGhostStorageMgr;
+    local TdGhost NewGhostRecord;
+    local UniqueNetId PlayerId;
+    local string PlayerName;
+    local int ControllerId;
+
+    EnsureHelperProxy();
+
+    bOverallSuccess = true;
+
+    if (b69Stars)
+    {
+        TimeToSet = 0.00f;
+    }
+    else
+    {
+        TimeToSet = 3599.99f; 
+    }
+
+    IntermediateTimesToSet.Length = 0;
+    IntermediateTimesToSet.AddItem(TimeToSet);
+
+    Profile = Outer.GetProfileSettings(); 
+    if (Profile == none)
+    {
+        ClientMessage("ResetAllTimeTrialTimes: Failed to get profile settings.");
+        return;
+    }
+    
+    ControllerId = LocPlayer.ControllerId;
+    OnlineSub = Class'GameEngine'.static.GetOnlineSubsystem();
+    if (OnlineSub != none && OnlineSub.PlayerInterface != none)
+    {
+        PlayerName = OnlineSub.PlayerInterface.GetPlayerNickname(byte(ControllerId));
+        if (!OnlineSub.PlayerInterface.GetUniquePlayerId(byte(ControllerId), PlayerId))
+        {
+            ClientMessage("ResetAllTimeTrialTimes: GetUniquePlayerId failed for ControllerId " $ ControllerId $ ".");
+        }
+    }
+    else
+    {
+        ClientMessage("ResetAllTimeTrialTimes: Could not get OnlineSubsystem/PlayerInterface. Using fallback PlayerName.");
+        PlayerName = "Faith"; 
+    }
+
+    OnlineSub = Class'GameEngine'.static.GetOnlineSubsystem();
+    if (OnlineSub != none && OnlineSub.PlayerInterface != none)
+    {
+        PlayerName = OnlineSub.PlayerInterface.GetPlayerNickname(byte(ControllerId));
+        if (!OnlineSub.PlayerInterface.GetUniquePlayerId(byte(ControllerId), PlayerId))
+        {
+            ClientMessage("ResetAllTimeTrialTimes: GetUniquePlayerId failed for ControllerId " $ ControllerId $ ". Ghost saving may use default ID.");
+        }
+    }
+    else
+    {
+        ClientMessage("ResetAllTimeTrialTimes: Could not get OnlineSubsystem or PlayerInterface. Using fallback PlayerName for ghost.");
+        PlayerName = "Faith"; 
+    }
+
+    if (Profile.TTUnlockTTCompletedMap.Length == 0)
+    {
+        ClientMessage("ResetAllTimeTrialTimes: TTUnlockTTCompletedMap is empty in profile. Cannot identify time trial stretches.");
+    }
+    
+    for (i = 0; i < Profile.TTUnlockTTCompletedMap.Length; i++)
+    {
+        StretchIndex = Profile.TTUnlockTTCompletedMap[i].CompletedTT; 
+        if (StretchIndex > 0)
+        {
+            if (!Profile.SetTTTimeForStretch(StretchIndex, TimeToSet, IntermediateTimesToSet, 0.0f, 0.0f))
+            {
+                ClientMessage("ResetAllTimeTrialTimes: Failed to set time for Time Trial Stretch Index " $ StretchIndex $ ".");
+                bOverallSuccess = false;
+            }
+            else
+            {
+                NewGhostRecord = new class'TdGhost';
+                if (NewGhostRecord != none)
+                {
+                    NewGhostRecord.Info.StretchId = StretchIndex;
+                    NewGhostRecord.Info.PlayerName = PlayerName;
+                    NewGhostRecord.Info.TotalTime = TimeToSet; 
+                    NewGhostRecord.Info.GhostTag = 0; 
+                    NewGhostRecord.RawBytes.Length = 0; 
+
+                    LocalGhostStorageMgr = new class'TdOfflineGhostStorageManager';
+                    if (LocalGhostStorageMgr != none)
+                    {
+                        if (!LocalGhostStorageMgr.WriteGhost(NewGhostRecord, PlayerId, GhostWriteCompleteCallback))
+                        {
+                            ClientMessage("ResetAllTimeTrialTimes: Call to WriteGhost failed to initiate for Stretch " $ StretchIndex $ ".");
+                        }
+                        else
+                        {
+                            //ClientMessage("ResetAllTimeTrialTimes: Initiated ghost write for Stretch " $ StretchIndex $ " with time " $ TimeToSet $ "s.");
+                        }
+                    }
+                    else
+                    {
+                        ClientMessage("ResetAllTimeTrialTimes: Failed to create TdOfflineGhostStorageManager for Stretch " $ StretchIndex $ ".");
+                    }
+                }
+                else
+                {
+                    ClientMessage("ResetAllTimeTrialTimes: Failed to create TdGhost object for Stretch " $ StretchIndex $ ".");
+                }
+            }
+        }
+    }
+
+    if (!bOverallSuccess)
+    {
+        ClientMessage("ResetAllTimeTrialTimes: One or more time trial stretch times failed to update.");
+    }
+
+    if (Outer.OnlinePlayerData != none)
+    {
+        if (!Outer.OnlinePlayerData.SaveProfileData())
+        {
+            ClientMessage("ResetAllTimeTrialTimes: Profile times save failed. Changes may not persist.");
+        }
+    }
+    else
+    {
+        ClientMessage("ResetAllTimeTrialTimes: Could not get OnlinePlayerData for saving profile times. Changes may not persist.");
+    }
+}
+
+exec function ResetAllSpeedrunTimes()
+{
+    local float TimeToSet;
+    local array<float> IntermediateTimesToSet;
+    local int i, j;
+    local int SpeedrunStretchIndex;
+    local bool bOverallSuccess;
+    local array<int> ActualTimeTrialStretchIndicies;
+    local bool bIsActualTimeTrialStretch;
+
+    EnsureHelperProxy();
+
+    bOverallSuccess = true;
+    TimeToSet = 3599.99f;
+
+    IntermediateTimesToSet.Length = 0;
+    IntermediateTimesToSet.AddItem(TimeToSet);
+
+    Profile = Outer.GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("ResetAllSpeedrunTimes: Failed to get profile settings.");
+        return;
+    }
+
+    // These are the stretches that ResetAllTimeTrialTimes manages
+    ActualTimeTrialStretchIndicies.Length = 0;
+    if (Profile.TTUnlockTTCompletedMap.Length > 0)
+    {
+        for (i = 0; i < Profile.TTUnlockTTCompletedMap.Length; i++)
+        {
+            if (Profile.TTUnlockTTCompletedMap[i].CompletedTT > 0) // ETTS_None is 0
+            {
+                ActualTimeTrialStretchIndicies.AddItem(Profile.TTUnlockTTCompletedMap[i].CompletedTT);
+            }
+        }
+    }
+    
+    if (ActualTimeTrialStretchIndicies.Length == 0 && Profile.TTUnlockTTCompletedMap.Length > 0)
+    {
+        ClientMessage("ResetAllSpeedrunTimes: Warning - TTUnlockTTCompletedMap was parsed but no valid time trial stretch IDs found. All speedruns will be reset.");
+    }
+    else if (Profile.TTUnlockTTCompletedMap.Length == 0)
+    {
+        //ClientMessage("ResetAllSpeedrunTimes: TTUnlockTTCompletedMap is empty. All speedruns identified by TTUnlockLevelCompletedMap will be reset.");
+    }
+
+
+    if (Profile.TTUnlockLevelCompletedMap.Length == 0)
+    {
+        ClientMessage("ResetAllSpeedrunTimes: TTUnlockLevelCompletedMap is empty in profile. Cannot identify speedrun stretches.");
+    }
+
+    // Loop through the speedrun stretch indices defined in TdProfileSettings defaultproperties
+    for (i = 0; i < Profile.TTUnlockLevelCompletedMap.Length; i++)
+    {
+        SpeedrunStretchIndex = Profile.TTUnlockLevelCompletedMap[i];
+        if (SpeedrunStretchIndex > 0)
+        {
+            // Check if this "speedrun" stretch is also in our list of time trial stretches
+            bIsActualTimeTrialStretch = false;
+            if (ActualTimeTrialStretchIndicies.Length > 0)
+            {
+                for (j = 0; j < ActualTimeTrialStretchIndicies.Length; j++)
+                {
+                    if (ActualTimeTrialStretchIndicies[j] == SpeedrunStretchIndex)
+                    {
+                        bIsActualTimeTrialStretch = true;
+                        break;
+                    }
+                }
+            }
+
+            if (bIsActualTimeTrialStretch)
+            {
+                // This stretch is managed by ResetAllTimeTrialTimes
+                // Do not overwrite it if it was potentially set to 0.00s
+                //ClientMessage("ResetAllSpeedrunTimes: Skipping reset for Stretch Index " $ SpeedrunStretchIndex $ " as it is also a time trial stretch. Its time should be managed by ResetAllTimeTrialTimes.");
+            }
+            else
+            {
+                // This stretch is either specific to speedruns or not in the TTUnlockTTCompletedMap
+                // so it's safe to reset its time via ResetAllSpeedrunTimes
+                if (!Profile.SetTTTimeForStretch(SpeedrunStretchIndex, TimeToSet, IntermediateTimesToSet, 0.0f, 0.0f))
+                {
+                    ClientMessage("ResetAllSpeedrunTimes: Failed to set time for speedrun-specific Stretch Index " $ SpeedrunStretchIndex $ ".");
+                    bOverallSuccess = false;
+                }
+            }
+        }
+    }
+
+    if (!bOverallSuccess && Profile.TTUnlockLevelCompletedMap.Length > 0) // Only show overall failure if attempts were made
+    {
+        ClientMessage("ResetAllSpeedrunTimes: One or more speedrun stretch times intended for update failed or were skipped.");
+    }
+
+    // Save the overall profile settings
+    if (Outer.OnlinePlayerData != none)
+    {
+        if (!Outer.OnlinePlayerData.SaveProfileData())
+        {
+            ClientMessage("ResetAllSpeedrunTimes: Profile save failed. Changes may not persist.");
+        }
+    }
+    else
+    {
+        ClientMessage("ResetAllSpeedrunTimes: Could not get TdPlayerController or OnlinePlayerData for saving. Changes may not persist.");
+    }
+}
+
+exec function SetCollectedBagsCount(int NumBagsToSet)
+{
+    local int HiddenBagMaskID;
+    local int NewBagMaskValue;
+    local int MaxBagsAllowed;
+
+    EnsureHelperProxy();
+
+    MaxBagsAllowed = 30; // Based on TdProfileSettings.MAX_BAGS
+
+    if (NumBagsToSet < 0)
+    {
+        NumBagsToSet = 0;
+    }
+    else if (NumBagsToSet > MaxBagsAllowed)
+    {
+        NumBagsToSet = MaxBagsAllowed;
+    }
+
+    PlayerDataStore = Outer.OnlinePlayerData;
+    if (PlayerDataStore != none)
+    {
+        ProfileDataProvider = PlayerDataStore.ProfileProvider;
+        if (ProfileDataProvider != none)
+        {
+            Profile = TdProfileSettings(ProfileDataProvider.Profile);
+        }
+    }
+
+    if (Profile == none)
+    {
+        return;
+    }
+
+    // Bags in Mirror's Edge are bitmask
+    if (NumBagsToSet == 0)
+    {
+        NewBagMaskValue = 0;
+    }
+    else if (NumBagsToSet == MaxBagsAllowed) 
+    {
+        NewBagMaskValue = (1 << MaxBagsAllowed) - 1;
+        if (MaxBagsAllowed == 31)
+        { // Max for a positive signed 32-bit int if all bits are used
+            NewBagMaskValue = 0x7FFFFFFF;
+        }
+        else if (MaxBagsAllowed >= 32)
+        {
+            NewBagMaskValue = -1;
+        }
+    }
+    else
+    {
+        NewBagMaskValue = (1 << NumBagsToSet) - 1;
+    }
+
+    HiddenBagMaskID = 1020;
+
+    if (Profile.SetProfileSettingValueInt(HiddenBagMaskID, NewBagMaskValue))
+    {
+        if (PlayerDataStore != none)
+        {
+            PlayerDataStore.SaveProfileData();
+        }
+    }
+}
+
+exec function SetSpecificBagCollected(int ChapterNumber, int BagInChapter, bool bCollected)
+{
+    local int OverallBagIndex;
+    local int CurrentBagMask;
+    local int NewBagMask;
+    local int BitToModify;
+    local int HiddenBagMaskID;
+
+    EnsureHelperProxy();
+
+    HiddenBagMaskID = 1020;
+
+    if (ChapterNumber < 1 || ChapterNumber > 10)
+    {
+        ClientMessage("SetSpecificBagCollected: Error - Invalid ChapterNumber '" $ ChapterNumber $ "'. Must be between 1 and 10.");
+        return;
+    }
+    if (BagInChapter < 1 || BagInChapter > 3)
+    {
+        ClientMessage("SetSpecificBagCollected: Error - Invalid BagInChapter '" $ BagInChapter $ "' for Chapter " $ ChapterNumber $ ". Must be between 1 and 3.");
+        return;
+    }
+
+    Profile = Outer.GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("SetSpecificBagCollected: Error - Failed to get profile settings.");
+        return;
+    }
+
+    // Each chapter has 3 bags. Chapter 1: bags 0,1,2. Chapter 2: bags 3,4,5. etc
+    OverallBagIndex = (ChapterNumber - 1) * 3 + (BagInChapter - 1);
+
+    if (!Profile.GetProfileSettingValueInt(HiddenBagMaskID, CurrentBagMask))
+    {
+        // If the setting doesn't exist or fails to read, it's safer to assume no bags are collected
+        ClientMessage("SetSpecificBagCollected: Warning - Failed to retrieve current bag mask for ID " $ HiddenBagMaskID $ ". Assuming 0 (no bags collected initially).");
+        CurrentBagMask = 0; 
+    }
+
+    BitToModify = (1 << OverallBagIndex); // Creates a mask like 00...010...00 where the '1' is at OverallBagIndex
+
+    if (bCollected)
+    {
+        NewBagMask = CurrentBagMask | BitToModify; // Set the bit using bitwise
+    }
+    else
+    {
+        NewBagMask = CurrentBagMask & ~BitToModify; // Clear the bit using bitwise AND with the inverse of the bit
+    }
+
+    if (Profile.SetProfileSettingValueInt(HiddenBagMaskID, NewBagMask))
+    {
+        ClientMessage("SetSpecificBagCollected: Bag mask successfully updated in profile settings object.");
+        
+        if (Outer.OnlinePlayerData != none)
+        {
+            if (!Outer.OnlinePlayerData.SaveProfileData())
+            {
+                ClientMessage("SetSpecificBagCollected: Error - Profile save FAILED after updating bag mask. Changes may not persist.");
+            }
+        }
+        else
+        {
+            ClientMessage("SetSpecificBagCollected: Error - Could not get OnlinePlayerData for saving. Changes may not persist.");
+        }
+    }
+    else
+    {
+        ClientMessage("SetSpecificBagCollected: Error - Failed to set the new bag mask (ID: " $ HiddenBagMaskID $ ") in profile settings object.");
+    }
+}
+
+exec function DefaultProfile()
+{
+    EnsureHelperProxy();
+
+    Outer.GetProfileSettings().SetToDefaults();
+    Outer.OnlinePlayerData.SaveProfileData();
+}
