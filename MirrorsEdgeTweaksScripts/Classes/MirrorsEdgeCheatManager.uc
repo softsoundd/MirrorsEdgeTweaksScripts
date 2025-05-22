@@ -405,7 +405,6 @@ exec function Noclip()
         Pawn.CheatWalk();
         PlayerPawn.bAllowMoveChange = true;
         PlayerPawn.AccelRate = 6144;
-        ConsoleCommand("set TdHudEffectManager UncontrolledFallingEffectSpeed 0.5");
 
         if (PlayerPawn != None)
         {
@@ -467,6 +466,7 @@ function FallHeightMonitoring()
                 // Reset commands once landed
                 ConsoleCommand("set TdMove_Landing HardLandingHeight 530");
                 ConsoleCommand("set TdPawn FallingUncontrolledHeight 1000");
+                ConsoleCommand("set TdHudEffectManager UncontrolledFallingEffectSpeed 0.5");
                 bMonitorFallHeight = false; // Stop monitoring after landing
             }
         }
@@ -886,8 +886,6 @@ exec function TpToSavedLocation()
             }
         }
     }
-
-    ConsoleCommand("DisplayTrainerHUDMessage Player state restored");
 }
 
 // Function to trigger the timer, restore velocity and movement state upon releasing the teleport key bind
@@ -1518,20 +1516,23 @@ exec function GrabMacro_OnRelease()
 // Internal functions to simulate the actions of each macro
 exec function MacroJump()
 {
-    ConsoleCommand("Jump");
-    ConsoleCommand("StopJump | Axis aUp Speed=1.0  AbsoluteAxis=100 | PrevStaticViewTarget");
+    local TdPlayerInput TdInput;
+
+    TdInput = TdPlayerInput(PlayerInput);
+    TdInput.Jump();
+    TdInput.StopJump();
 }
 
 exec function MacroInteract()
 {
-    ConsoleCommand("UsePress");
-    ConsoleCommand("UseRelease");
+    Outer.UsePress();
+    Outer.UseRelease();
 }
 
 exec function MacroGrab()
 {
-    ConsoleCommand("PressedSwitchWeapon");
-    ConsoleCommand("ReleasedSwitchWeapon");
+    Outer.PressedSwitchWeapon();
+    Outer.ReleasedSwitchWeapon();
 }
 
 // This function sets the screen resolution, adjusts UI scaling, and verifies that the chosen resolution is valid
@@ -2208,6 +2209,16 @@ function DollyMonitoring()
 
     if (PC != None && PC.PlayerInput != None)
     {
+        if (PC.PlayerInput.PressedKeys.Find('SpaceBar') != -1)
+        {
+            PlayerCam.FreeFlightPosition.Z += 50.0 * PlayerCam.FreeflightScale;
+        }
+
+        if (PC.PlayerInput.PressedKeys.Find('LeftShift') != -1)
+        {
+            PlayerCam.FreeFlightPosition.Z -= 50.0 * PlayerCam.FreeflightScale;
+        }
+
         if (PC.PlayerInput.PressedKeys.Find('E') != -1)
         {
             if (PlayerCam.FreeflightScale <= 5)

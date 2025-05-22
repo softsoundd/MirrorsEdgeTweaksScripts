@@ -25,14 +25,20 @@ function PostBeginPlay()
     ActiveMacroMode = 0; // Default to InteractMacro
 }
 
+exec function test()
+{
+    local TdPlayerInput TdInput;
+
+    TdInput = TdPlayerInput(PlayerInput);
+    TdInput.Jump();
+}
+
 function EnsureHelperProxy()
 {
     if (HelperProxy == None)
     {
         HelperProxy = WorldInfo.Spawn(class'CheatHelperProxy');
         HelperProxy.MacroReference = self;
-        ClientMessage("Macros are ready for use (make sure you have set their binds in Mirror's Edge Tweaks)");
-        ClientMessage("Interact macro is active by default - to switch to the grab macro type \"SwitchMacroMode\"");
     }
 }
 
@@ -132,20 +138,23 @@ exec function GrabMacro_OnRelease()
 // Internal functions to simulate the inputs
 exec function MacroJump()
 {
-    ConsoleCommand("Jump");
-    ConsoleCommand("StopJump | Axis aUp Speed=1.0  AbsoluteAxis=100 | PrevStaticViewTarget");
+    local TdPlayerInput TdInput;
+
+    TdInput = TdPlayerInput(PlayerInput);
+    TdInput.Jump();
+    TdInput.StopJump();
 }
 
 exec function MacroInteract()
 {
-    ConsoleCommand("UsePress");
-    ConsoleCommand("UseRelease");
+    Outer.UsePress();
+    Outer.UseRelease();
 }
 
 exec function MacroGrab()
 {
-    ConsoleCommand("PressedSwitchWeapon");
-    ConsoleCommand("ReleasedSwitchWeapon");
+    Outer.PressedSwitchWeapon();
+    Outer.ReleasedSwitchWeapon();
 }
 
 function ExecuteCommand(string Command)

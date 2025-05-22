@@ -1,5 +1,5 @@
 /**
- *  Proxy class for providing the MirrorsEdgeCheatManager class access to low-level UScript functions (ticks, loops, etc.).
+ *  Proxy class for providing the CheatManager-extended classes access to low-level UScript functions (ticks, loops, etc.).
  *
  *  This allows us to monitor certain states or loop through functions - this is what permits fall height monitoring, macros etc. to work
  *  Doing it like this is relatively unconventional, but it works.
@@ -27,8 +27,7 @@ event Tick(float DeltaTime)
     {
         CheatManagerReference.OnTick(DeltaTime);
     }
-
-    if (bEnableTick && SaveFileEditorReference != None)
+    else if (bEnableTick && SaveFileEditorReference != None)
     {
         SaveFileEditorReference.OnTick(DeltaTime);
     }
@@ -39,13 +38,13 @@ event Timer()
     if (PendingCommand != "")
     {
         // Check which reference is available and execute the command
-        if (MacroReference != None)
-        {
-            MacroReference.ExecuteCommand(PendingCommand);
-        }
-        else if (CheatManagerReference != None)
+        if (CheatManagerReference != None)
         {
             CheatManagerReference.ExecuteCommand(PendingCommand);
+        }
+        else if (MacroReference != None)
+        {
+            MacroReference.ExecuteCommand(PendingCommand);
         }
     }
 }
