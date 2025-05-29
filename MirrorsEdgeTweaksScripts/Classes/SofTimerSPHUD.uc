@@ -5,14 +5,14 @@ class SofTimerSPHUD extends TdSPHUD
 
 var SaveLoadHandler     SaveLoad;
 var UIDataStore_TdGameData GameData;
+var TdPlayerController  SpeedrunController;
+var TdProfileSettings   Profile;
 var(HUDIcons) Vector2D  TimerPos;
 var(HUDIcons) Vector2D  SplitPos;
 var(HUDIcons) Vector2D  SpeedPos;
 var transient string    SpeedUnitString;
 var transient int       MeasurementUnits;
 var bool                bTimerVisible;
-var TdPlayerController  SpeedrunController;
-var TdProfileSettings   Profile;
 
 var bool              bLoadedTimeFromSave;
 var bool              bUndeclaredLoadActive;
@@ -35,8 +35,10 @@ var bool              bEnteredLoadingBay;
 
 // Chapter 9 (Scraper) variables.
 var bool              bHeliReadyForGrab;
+
+// Run completion variables
 var bool              bFinalTimeLocked;
-var int               RunCompleteASLMarker;
+var int               RunCompleteLiveSplitASLMarker;
 var bool              RunComplete;
 
 // These arrays list the streaming level package names that get loaded and should increment the timer (RTA).
@@ -119,46 +121,6 @@ event PostBeginPlay()
     DataStoreManager = Class'UIInteraction'.static.GetDataStoreClient();
     GameData = UIDataStore_TdGameData(DataStoreManager.FindDataStore('TdGameData'));
 
-    if (SaveLoad == none)
-    {
-        SaveLoad = new class'SaveLoadHandler';
-    }
-
-    // Load the flag that indicates if a new game has ever been started for the active game session
-    // This stops the timer automatically incrementing when we first enable speedrun mode
-    bHasEverStartedNewGame = (SaveLoad.LoadData("HasEverStartedNewGame") == "true");
-
-    CacheMeasurementUnitInfo();
-
-    HundredPercentMode = (SaveLoad.LoadData("HundredPercentMode") == "") ? false : bool(SaveLoad.LoadData("HundredPercentMode"));
-    SoundFix = (SaveLoad.LoadData("SoundFix") == "") ? false : bool(SaveLoad.LoadData("SoundFix"));
-
-    // Speedrun HUD elements
-    bTimerVisible = (SaveLoad.LoadData("TimerHUDVisible") == "") ? true : bool(SaveLoad.LoadData("TimerHUDVisible"));
-    ShowSpeed = (SaveLoad.LoadData("ShowSpeed") == "") ? false : bool(SaveLoad.LoadData("ShowSpeed"));
-    ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
-    ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
-
-    SavedShowBagHUD = SaveLoad.LoadData("ShowBagHUD");
-
-    if (SavedShowBagHUD == "")
-    {
-        ShowBagHUD = HundredPercentMode;
-    }
-    else
-    {
-        ShowBagHUD = bool(SavedShowBagHUD);
-    }
-    bBagPopUpCalled = false;
-    bWasCinematicMode = SpeedrunController.bCinematicMode;
-    
-    // Initialise the max values and timers
-    MaxVelocity = 0.0;
-    MaxHeight = 0.0;
-    LastMaxVelocityUpdateTime = WorldInfo.TimeSeconds;
-    LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
-    UpdateInterval = 3.0;
-
     MapName = WorldInfo.GetMapName();
     
     // On spawn, skip the next tick to avoid the extra clamped DeltaTime
@@ -171,18 +133,55 @@ event PostBeginPlay()
         SkipTicks = 0;
     }
 
+    if (SaveLoad == none)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
+    // Load the flag that indicates if a new game has ever been started for the active game session
+    // This stops the timer automatically incrementing in the main menu when we first enable speedrun mode
+    bHasEverStartedNewGame = (SaveLoad.LoadData("HasEverStartedNewGame") == "true");
+
+    CacheMeasurementUnitInfo();
+
+    // Speedrun settings
+    HundredPercentMode = (SaveLoad.LoadData("HundredPercentMode") == "") ? false : bool(SaveLoad.LoadData("HundredPercentMode"));
+    SoundFix = (SaveLoad.LoadData("SoundFix") == "") ? false : bool(SaveLoad.LoadData("SoundFix"));
+
+    // Speedrun HUD elements
+    bTimerVisible = (SaveLoad.LoadData("TimerHUDVisible") == "") ? true : bool(SaveLoad.LoadData("TimerHUDVisible"));
+    ShowSpeed = (SaveLoad.LoadData("ShowSpeed") == "") ? false : bool(SaveLoad.LoadData("ShowSpeed"));
+    ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
+    ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
+
+    SavedShowBagHUD = SaveLoad.LoadData("ShowBagHUD");
+    if (SavedShowBagHUD == "")
+    {
+        ShowBagHUD = HundredPercentMode;
+    }
+    else
+    {
+        ShowBagHUD = bool(SavedShowBagHUD);
+    }
+    bBagPopUpCalled = false;
+    bWasCinematicMode = SpeedrunController.bCinematicMode;
+
+    ConsoleCommand("set TdSPHUD PopUpPos (X=96,Y=70)");
+    
+    // Initialise the max values and timers
+    MaxVelocity = 0.0;
+    MaxHeight = 0.0;
+    LastMaxVelocityUpdateTime = WorldInfo.TimeSeconds;
+    LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
+    UpdateInterval = 3.0;
+
     // --- Initialise level packages for each chapter. Unless otherwise changed, declared loads are RTA, and declared unloads are LRT ---
 
     if (MapName == "Edge_p")
     {
-        if (!bHasEverStartedNewGame)
-        {
-            bHasEverStartedNewGame = true;
-            SaveLoad.SaveData("HasEverStartedNewGame", "true");
-        }
         // Reset any monitoring from previous runs
         bFinalTimeLocked = false;
-        RunCompleteASLMarker = 123456789;
+        RunCompleteLiveSplitASLMarker = 123456789;
         SaveLoad.SaveData("FinalTimeLocked", "false");
 
         if (HundredPercentMode)
@@ -767,15 +766,15 @@ function Tick(float DeltaTime)
 
     super(TdHUD).Tick(DeltaTime);
 
-    // This stops HUD/post process effects breaking
-    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
-
     // Skip timer update if within the skip period
     if (SkipTicks > 0)
     {
         SkipTicks--;
         return;
     }
+
+    // This stops HUD/post process effects breaking
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 
     if (SaveLoad == none)
     {
@@ -785,6 +784,16 @@ function Tick(float DeltaTime)
     if (SpeedrunController == none && PlayerOwner != none)
     {
         SpeedrunController = TdPlayerController(PlayerOwner);
+    }
+
+    if (!bLoadedTimeFromSave)
+    {
+        SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
+        if (SavedTimeStr != "")
+        {
+            GameData.TimeAttackClock = float(SavedTimeStr);
+        }
+        bLoadedTimeFromSave = true;
     }
 
     if (HundredPercentMode && ShowBagHUD)
@@ -820,16 +829,6 @@ function Tick(float DeltaTime)
             SpeedrunController.CallPopUp(PUT_None, 1.0);
             bBagPopUpCalled = false;
         }
-    }
-
-    if (!bLoadedTimeFromSave)
-    {
-        SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
-        if (SavedTimeStr != "")
-        {
-            GameData.TimeAttackClock = float(SavedTimeStr);
-        }
-        bLoadedTimeFromSave = true;
     }
 
     MapName = WorldInfo.GetMapName();
@@ -1036,7 +1035,7 @@ function Tick(float DeltaTime)
             if (RunComplete)
             {
                 bFinalTimeLocked = true;
-                RunCompleteASLMarker = 987654321;
+                RunCompleteLiveSplitASLMarker = 987654321;
                 SaveLoad.SaveData("FinalTimeLocked", "true");
             }
         }
@@ -1658,11 +1657,98 @@ exec function SetCollectedBagsCount(int NumBagsToSet)
     }
 }
 
+function bool CheckCheckpointTimeSavingToDisk()
+{
+    local OnlineSubsystem OnlineSub;
+    local OnlineProfileSettings OnlineProf;
+    local byte ControllerId;
+
+    OnlineSub = Class'GameEngine'.static.GetOnlineSubsystem();
+    ControllerId = byte(Class'UIInteraction'.static.GetPlayerControllerId(0));
+    OnlineProf = OnlineSub.PlayerInterface.GetProfileSettings(ControllerId);
+
+    if((OnlineProf != none) && OnlineProf.AsyncState == OPAS_Write)
+    {
+        return true;
+    }
+}
+
+exec function SaveCheckpointTime()
+{
+    local array<float> IntermediateTimes;
+    local bool bSetSuccess;
+    local int ProfileIDToTest;
+    local float TimeToSet;
+
+    ProfileIDToTest = 1204; // TDPID_StretchTime_04, this isn't actually used for any stretches so we can save here
+    TimeToSet = GameData.TimeAttackClock;
+
+    if (Outer == none)
+    {
+        return;
+    }
+
+    Profile = SpeedrunController.GetProfileSettings();
+    if (Profile == none)
+    {
+        return;
+    }
+
+    IntermediateTimes.Length = 0;
+    IntermediateTimes.AddItem(TimeToSet);
+
+    bSetSuccess = Profile.SetTTStretchTime(ProfileIDToTest, TimeToSet, IntermediateTimes, 0.0, 0.0);
+
+    if (bSetSuccess)
+    {
+        if (SpeedrunController.OnlinePlayerData != none)
+        {
+            SpeedrunController.OnlinePlayerData.SaveProfileData();
+        }
+    }
+}
+
+exec function LoadSavedCheckpointTime()
+{
+    local int TargetProfileID;
+    local int StretchNumber;
+    local float RetrievedTotalTime;
+    local bool bSuccess;
+
+    if (SpeedrunController == none)
+    {
+        return;
+    }
+    Profile = SpeedrunController.GetProfileSettings();
+
+    if (Profile == none)
+    {
+        return;
+    }
+
+    TargetProfileID = 1204;
+
+    // Convert the ProfileID to the 1-based "stretch" number that GetTotalTimeOnlyForStretch expects
+    if (TargetProfileID >= Profile.TDPID_StretchTime_00 && TargetProfileID <= Profile.TDPID_StretchTime_33)
+    {
+        StretchNumber = (TargetProfileID - Profile.TDPID_StretchTime_00) + 1;
+    }
+
+    bSuccess = Profile.GetTotalTimeOnlyForStretch(StretchNumber, RetrievedTotalTime);
+
+    if (bSuccess)
+    {
+        GameData.TimeAttackClock = RetrievedTotalTime;
+    }
+}
+
 // DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
 function DrawLivingHUD()
 {
     local TdSPStoryGame Game;
     local float PosY;
+    local bool bCheatsActive;
+    local bool bIllegalFramerate;
 
     super(TdSPHUD).DrawLivingHUD();
 
@@ -1697,9 +1783,12 @@ function DrawLivingHUD()
 
         DrawTrainerItems();
 
-        if (CheckCheatsTrainerMode())
+        bCheatsActive = CheckCheatsTrainerMode();
+        bIllegalFramerate = CheckIllegalFramerateLimit();
+
+        if (bCheatsActive || bIllegalFramerate)
         {
-            DrawCheatsTrainerMessage();
+            DrawViolationMessages(bCheatsActive, bIllegalFramerate);
         }
     }
 }
@@ -1760,32 +1849,64 @@ exec function ToggleTimer()
     SaveLoad.SaveData("TimerHUDVisible", bTimerVisible ? "true" : "false");
 }
 
-function DrawCheatsTrainerMessage()
+function DrawViolationMessages(bool bCheatsActive, bool bIllegalFramerate)
 {
     local float Y, ShadowOffset;
+    local string Message;
 
     ShadowOffset = 2.0;
     Canvas.Font = Class'Engine'.static.GetMediumFont();
 
-    Y = Canvas.SizeY * 0.10;
+    Y = Canvas.SizeY * 0.08;
     Canvas.bCenter = true;
 
-    // Draw shadow
-    Canvas.SetPos(0 + ShadowOffset, Y + ShadowOffset);
-    Canvas.DrawColor = FontDSColor;
-    Canvas.DrawColor.A *= Square(FadeAmount);
-    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+    Message = "";
 
-    // Draw main text
-    Canvas.SetPos(0, Y);
-    Canvas.DrawColor = RedColor;
-    Canvas.DrawColor.A = byte(float(255) * FadeAmount);
-    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+    if (bCheatsActive)
+    {
+        Message = "Cheats + Trainer Mode active!";
+    }
+
+    if (bIllegalFramerate)
+    {
+        if (Message != "")
+        {
+            Message $= "\n";
+        }
+        Message $= "Illegal framerate! 60-62 framerate limit required.";
+    }
+
+    if (Message != "")
+    {
+        // Draw shadow
+        Canvas.SetPos(0 + ShadowOffset, Y + ShadowOffset);
+        Canvas.DrawColor = FontDSColor;
+        Canvas.DrawColor.A *= Square(FadeAmount);
+        Canvas.DrawText(Message, False, 0.60, 0.60);
+
+        // Draw main text
+        Canvas.SetPos(0, Y);
+        Canvas.DrawColor = RedColor;
+        Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+        Canvas.DrawText(Message, False, 0.60, 0.60);
+    }
 }
 
 function bool CheckCheatsTrainerMode()
 {
     if (SpeedrunController.CheatClass == Class'MirrorsEdgeTweaksScripts.MirrorsEdgeCheatManager')
+    {
+        return true;
+    }
+}
+
+function bool CheckIllegalFramerateLimit()
+{
+    local float FrameRateLimit;
+
+    FrameRateLimit = class'GameEngine'.default.MaxSmoothedFrameRate;
+
+    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0)
     {
         return true;
     }
@@ -2195,7 +2316,7 @@ defaultproperties
     TimerPos=(X=1000,Y=55)
     SplitPos=(X=1000,Y=88)
     SpeedPos=(X=1060,Y=605)
-    RunCompleteASLMarker = 123456789
+    RunCompleteLiveSplitASLMarker = 123456789
     bTimerVisible = true
     ShowSpeed = false
     ShowTrainerHUDItems = false
