@@ -65,6 +65,8 @@ exec function UnlockProgression(optional bool bStory, optional bool bTimeTrials)
 {
     local bool bAnySettingChangedSuccessfully;
     local bool bCurrentOpSuccess;
+    local int storyMaskValue;
+    local int timeTrialMaskValue;
 
     bAnySettingChangedSuccessfully = false;
 
@@ -72,35 +74,38 @@ exec function UnlockProgression(optional bool bStory, optional bool bTimeTrials)
     Profile = Outer.GetProfileSettings();
     if (Profile == none)
     {
-        ClientMessage("UnlockProgression: Failed to get profile settings. No actions taken.");
+        ClientMessage("UnlockProgression: failed to get profile settings. No actions taken.");
         return;
     }
 
     if (bStory)
     {
-        // Profile.UnlockAllLevels() internally calls SetProfileSettingValueInt(TDPID_LevelUnlockMask, -1)
-        bCurrentOpSuccess = Profile.UnlockAllLevels(); 
+        // MAX_LEVELS is 10. Game's IsAllLevelsUnlocked checks for (10+1) = 11 bits.
+        storyMaskValue = (1 << (Profile.MAX_LEVELS + 1)) - 1; // Sets bits 0 through 10 (value = 2047)
+
+        bCurrentOpSuccess = Profile.SetProfileSettingValueInt(Profile.TDPID_LevelUnlockMask, storyMaskValue);
         if (bCurrentOpSuccess)
         {
             bAnySettingChangedSuccessfully = true;
         }
         else
         {
-            ClientMessage("UnlockProgression: FAILED to apply settings to unlock Story Levels (Normal).");
+            ClientMessage("UnlockProgression: failed to apply settings to unlock Story Levels (Normal) with mask " $ storyMaskValue);
         }
     }
 
     if (bTimeTrials)
     {
-        // Profile.UnLockAllTTStretches() internally calls SetProfileSettingValueInt(TDPID_TimeTrialUnlockMask, -1)
-        bCurrentOpSuccess = Profile.SetProfileSettingValueInt(Profile.TDPID_TimeTrialUnlockMask, -1); 
+        timeTrialMaskValue = (1 << 24) - 1; // Sets bits 0 through 23 (value = 16777215)
+
+        bCurrentOpSuccess = Profile.SetProfileSettingValueInt(Profile.TDPID_TimeTrialUnlockMask, timeTrialMaskValue);
         if (bCurrentOpSuccess)
         {
             bAnySettingChangedSuccessfully = true;
         }
         else
         {
-            ClientMessage("UnlockProgression: FAILED to apply settings to unlock Time Trials.");
+            ClientMessage("UnlockProgression: failed to apply settings to unlock Time Trials with mask " $ timeTrialMaskValue);
         }
     }
 
@@ -116,7 +121,7 @@ exec function UnlockProgression(optional bool bStory, optional bool bTimeTrials)
         {
             if (!Outer.OnlinePlayerData.SaveProfileData())
             {
-                ClientMessage("UnlockProgression: Profile save FAILED. Changes may not persist.");
+                ClientMessage("UnlockProgression: Profile save failed. Changes may not persist.");
             }
         }
         else
@@ -141,7 +146,7 @@ exec function LockProgression(optional bool bStory, optional bool bTimeTrials)
     Profile = Outer.GetProfileSettings();
     if (Profile == none)
     {
-        ClientMessage("LockProgression: Failed to get profile settings. No actions taken.");
+        ClientMessage("LockProgression: failed to get profile settings. No actions taken.");
         return;
     }
 
@@ -155,7 +160,7 @@ exec function LockProgression(optional bool bStory, optional bool bTimeTrials)
         }
         else
         {
-            ClientMessage("LockProgression: FAILED to apply settings to lock Story Levels (Normal).");
+            ClientMessage("LockProgression: failed to apply settings to lock Story Levels (Normal).");
         }
     }
 
@@ -169,7 +174,7 @@ exec function LockProgression(optional bool bStory, optional bool bTimeTrials)
         }
         else
         {
-            ClientMessage("LockProgression: FAILED to apply settings to lock Time Trials.");
+            ClientMessage("LockProgression: failed to apply settings to lock Time Trials.");
         }
     }
 
@@ -185,7 +190,7 @@ exec function LockProgression(optional bool bStory, optional bool bTimeTrials)
         {
             if (!Outer.OnlinePlayerData.SaveProfileData())
             {
-                ClientMessage("LockProgression: Profile save FAILED. Changes may not persist.");
+                ClientMessage("LockProgression: Profile save failed. Changes may not persist.");
             }
         }
         else
@@ -215,7 +220,7 @@ function GhostWriteCompleteCallback(TdGhostStorageManager.EGhostStorageResult Re
     }
     if (Result != 0)
     {
-        ClientMessage("GhostWriteCallback: Failed to write ghost data. Result: " $ ResultString $ ". (Tag: " $ GhostTagReceived $ ")");
+        ClientMessage("GhostWriteCallback: failed to write ghost data. Result: " $ ResultString $ ". (Tag: " $ GhostTagReceived $ ")");
     }
 }
 
@@ -253,7 +258,7 @@ exec function ResetAllTimeTrialTimes(optional bool b69Stars)
     Profile = Outer.GetProfileSettings(); 
     if (Profile == none)
     {
-        ClientMessage("ResetAllTimeTrialTimes: Failed to get profile settings.");
+        ClientMessage("ResetAllTimeTrialTimes: failed to get profile settings.");
         return;
     }
     
@@ -300,7 +305,7 @@ exec function ResetAllTimeTrialTimes(optional bool b69Stars)
         {
             if (!Profile.SetTTTimeForStretch(StretchIndex, TimeToSet, IntermediateTimesToSet, 0.0f, 0.0f))
             {
-                ClientMessage("ResetAllTimeTrialTimes: Failed to set time for Time Trial Stretch Index " $ StretchIndex $ ".");
+                ClientMessage("ResetAllTimeTrialTimes: failed to set time for Time Trial Stretch Index " $ StretchIndex $ ".");
                 bOverallSuccess = false;
             }
             else
@@ -324,12 +329,12 @@ exec function ResetAllTimeTrialTimes(optional bool b69Stars)
                     }
                     else
                     {
-                        ClientMessage("ResetAllTimeTrialTimes: Failed to create TdOfflineGhostStorageManager for Stretch " $ StretchIndex $ ".");
+                        ClientMessage("ResetAllTimeTrialTimes: failed to create TdOfflineGhostStorageManager for Stretch " $ StretchIndex $ ".");
                     }
                 }
                 else
                 {
-                    ClientMessage("ResetAllTimeTrialTimes: Failed to create TdGhost object for Stretch " $ StretchIndex $ ".");
+                    ClientMessage("ResetAllTimeTrialTimes: failed to create TdGhost object for Stretch " $ StretchIndex $ ".");
                 }
             }
         }
@@ -374,7 +379,7 @@ exec function ResetAllSpeedrunTimes()
     Profile = Outer.GetProfileSettings();
     if (Profile == none)
     {
-        ClientMessage("ResetAllSpeedrunTimes: Failed to get profile settings.");
+        ClientMessage("ResetAllSpeedrunTimes: failed to get profile settings.");
         return;
     }
 
@@ -422,7 +427,7 @@ exec function ResetAllSpeedrunTimes()
             {
                 if (!Profile.SetTTTimeForStretch(SpeedrunStretchIndex, TimeToSet, IntermediateTimesToSet, 0.0f, 0.0f))
                 {
-                    ClientMessage("ResetAllSpeedrunTimes: Failed to set time for speedrun-specific Stretch Index " $ SpeedrunStretchIndex $ ".");
+                    ClientMessage("ResetAllSpeedrunTimes: failed to set time for speedrun-specific Stretch Index " $ SpeedrunStretchIndex $ ".");
                     bOverallSuccess = false;
                 }
             }
@@ -438,7 +443,7 @@ exec function ResetAllSpeedrunTimes()
     {
         if (!Outer.OnlinePlayerData.SaveProfileData())
         {
-            ClientMessage("ResetAllSpeedrunTimes: Profile save FAILED to initiate. Changes may not persist.");
+            ClientMessage("ResetAllSpeedrunTimes: Profile save failed to initiate. Changes may not persist.");
         }
     }
     else
@@ -540,7 +545,7 @@ exec function SetSpecificBagCollected(int ChapterNumber, int BagInChapter, bool 
     Profile = Outer.GetProfileSettings();
     if (Profile == none)
     {
-        ClientMessage("SetSpecificBagCollected: Error - Failed to get profile settings.");
+        ClientMessage("SetSpecificBagCollected: Error - failed to get profile settings.");
         return;
     }
 
@@ -550,7 +555,7 @@ exec function SetSpecificBagCollected(int ChapterNumber, int BagInChapter, bool 
     if (!Profile.GetProfileSettingValueInt(HiddenBagMaskID, CurrentBagMask))
     {
         // If the setting doesn't exist or fails to read, it's safer to assume no bags are collected
-        ClientMessage("SetSpecificBagCollected: Warning - Failed to retrieve current bag mask for ID " $ HiddenBagMaskID $ ". Assuming 0 (no bags collected initially).");
+        ClientMessage("SetSpecificBagCollected: Warning - failed to retrieve current bag mask for ID " $ HiddenBagMaskID $ ". Assuming 0 (no bags collected initially).");
         CurrentBagMask = 0; 
     }
 
@@ -571,7 +576,7 @@ exec function SetSpecificBagCollected(int ChapterNumber, int BagInChapter, bool 
         {
             if (!Outer.OnlinePlayerData.SaveProfileData())
             {
-                ClientMessage("SetSpecificBagCollected: Error - Profile save FAILED after updating bag mask. Changes may not persist.");
+                ClientMessage("SetSpecificBagCollected: Error - Profile save failed after updating bag mask. Changes may not persist.");
             }
         }
         else
@@ -581,7 +586,7 @@ exec function SetSpecificBagCollected(int ChapterNumber, int BagInChapter, bool 
     }
     else
     {
-        ClientMessage("SetSpecificBagCollected: Error - Failed to set the new bag mask (ID: " $ HiddenBagMaskID $ ") in profile settings object.");
+        ClientMessage("SetSpecificBagCollected: Error - failed to set the new bag mask (ID: " $ HiddenBagMaskID $ ") in profile settings object.");
     }
 }
 
@@ -595,12 +600,20 @@ exec function SetAllHintsViewed(optional bool bShown)
     Profile = Outer.GetProfileSettings();
     if (Profile == none)
     {
-        ClientMessage("MarkAllHintsAsShown: Failed to get profile settings.");
+        ClientMessage("MarkAllHintsAsShown: failed to get profile settings.");
         return;
     }
 
     HintMaskID = Profile.TDPID_HintsShownFlags;
-    NewValue = bShown ? -1 : 0;
+
+    if (bShown)
+    {
+        NewValue = (1 << 8) - 1;
+    }
+    else
+    {
+        NewValue = 0;
+    }
 
     if (Profile.SetProfileSettingValueInt(HintMaskID, NewValue))
     {
@@ -608,7 +621,7 @@ exec function SetAllHintsViewed(optional bool bShown)
         {
             if (!Outer.OnlinePlayerData.SaveProfileData())
             {
-                ClientMessage("MarkAllHintsAsShown: Profile save FAILED. Changes may not persist.");
+                ClientMessage("MarkAllHintsAsShown: Profile save failed. Changes may not persist.");
             }
         }
         else
@@ -618,7 +631,7 @@ exec function SetAllHintsViewed(optional bool bShown)
     }
     else
     {
-        ClientMessage("MarkAllHintsAsShown: Failed to set new hint mask (ID: " $ HintMaskID $ ") in profile object.");
+        ClientMessage("MarkAllHintsAsShown: failed to set new hint mask (ID: " $ HintMaskID $ ") in profile object.");
     }
 }
 
@@ -638,7 +651,7 @@ exec function SetKeyBind(string ActionCommandString, string KeyName1, optional s
     Profile = Outer.GetProfileSettings();
     if (Profile == none)
     {
-        ClientMessage("Failed to get profile settings.");
+        ClientMessage("failed to get profile settings.");
         return;
     }
     
@@ -703,7 +716,7 @@ exec function SetKeyBind(string ActionCommandString, string KeyName1, optional s
 
     if (!Profile.SetProfileSettingValueInt(KeyActionProfileId, KeyBindingValue))
     {
-        ClientMessage("Failed to set keybind via SetProfileSettingValueInt. Profile not modified for this keybind.");
+        ClientMessage("failed to set keybind via SetProfileSettingValueInt. Profile not modified for this keybind.");
         return; 
     }
 
@@ -721,12 +734,68 @@ exec function SetKeyBind(string ActionCommandString, string KeyName1, optional s
     {
         if (!Outer.OnlinePlayerData.SaveProfileData())
         {
-            ClientMessage("Profile save FAILED. Keybind changes may not persist in profile storage.");
+            ClientMessage("Profile save failed. Keybind changes may not persist in profile storage.");
         }
     }
     else
     {
         ClientMessage("Could not get OnlinePlayerData for saving profile. Keybind changes may not persist in profile storage.");
+    }
+}
+
+exec function SetAutoAimStatus(bool bEnable)
+{
+    local int ValueToSet;
+    local bool bSuccess;
+
+    EnsureHelperProxy();
+
+    if (Outer == none) {
+        ClientMessage("SetAutoAimStatus: Error - Outer (PlayerController) is None.");
+        return;
+    }
+    Profile = Outer.GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("SetAutoAimStatus: failed to get profile settings.");
+        return;
+    }
+
+    if (bEnable)
+    {
+        ValueToSet = 1;
+        ClientMessage("SetAutoAimStatus: Attempting to set Auto-Aim to ON (Value: " $ ValueToSet $ ").");
+    }
+    else
+    {
+        ValueToSet = 0;
+        ClientMessage("SetAutoAimStatus: Attempting to set Auto-Aim to OFF (Value: " $ ValueToSet $ ").");
+    }
+
+    bSuccess = Profile.SetProfileSettingValueId(Profile.TDPID_AutoAim, ValueToSet);
+
+    if (bSuccess)
+    {
+        ClientMessage("SetAutoAimStatus: Successfully updated Auto-Aim setting in profile object (ID: " $ Profile.TDPID_AutoAim $ ").");
+        if (Outer.OnlinePlayerData != none)
+        {
+            if (!Outer.OnlinePlayerData.SaveProfileData())
+            {
+                ClientMessage("SetAutoAimStatus: Profile save failed. Changes may not persist.");
+            }
+            else
+            {
+                ClientMessage("SetAutoAimStatus: Profile save initiated successfully.");
+            }
+        }
+        else
+        {
+            ClientMessage("SetAutoAimStatus: Could not get OnlinePlayerData for saving. Changes may not persist.");
+        }
+    }
+    else
+    {
+        ClientMessage("SetAutoAimStatus: failed to update Auto-Aim setting (ID: " $ Profile.TDPID_AutoAim $ ") in profile object.");
     }
 }
 
@@ -736,4 +805,320 @@ exec function DefaultProfile()
 
     Outer.GetProfileSettings().SetToDefaults();
     Outer.OnlinePlayerData.SaveProfileData();
+}
+
+exec function ViewProfileID(int PropertyID)
+{
+    local int IntValue;
+    local float FloatValue;
+    local string StringValue;
+    local int IdValue;
+    local bool bHandledSpecially;
+    local bool bAttemptedSpecialHandling;
+    local bool bValueFoundThisType;
+    local name ResolvedSettingName;
+    local int i;
+    local bool bOverallValueFound;
+    local string DisplayKeyForLog;
+    local bool bPropertyExistsInSettingsArray;
+
+
+    local float StretchTotalTime, StretchAverageSpeed, StretchDistanceRun;
+    local array<float> StretchIntermediateTimes;
+    local int StretchNumber;
+    local int currentBagsFound;
+
+    local int ActionIndex;
+    local string KeyActionCommandName;
+    local name KeyBinds[4];
+    local int KeyEnumValue;
+    local int StoredKeyBindingValue;
+
+    EnsureHelperProxy();
+
+    if (Outer == none)
+    {
+        ClientMessage("ViewProfileID: Error - Outer (PlayerController) is None.");
+        return;
+    }
+    Profile = Outer.GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("ViewProfileID: Error - failed to get TdProfileSettings object.");
+        return;
+    }
+
+    ResolvedSettingName = Profile.GetProfileSettingName(PropertyID);
+    bOverallValueFound = false;
+
+    ClientMessage("==============================================================");
+    if (ResolvedSettingName != 'None' && ResolvedSettingName != '')
+    {
+        ClientMessage("Viewing Profile ID: " $ PropertyID $ " (Name: '" $ ResolvedSettingName $ "')");
+    }
+    else
+    {
+        ClientMessage("Viewing Profile ID: " $ PropertyID $ " (Name: Not Mapped or Unknown)");
+    }
+    ClientMessage("--------------------------------------------------------------");
+
+    bHandledSpecially = false;
+    bAttemptedSpecialHandling = false;
+
+    // Time trial stretch data
+    if (PropertyID >= Profile.TDPID_StretchTime_00 && PropertyID <= Profile.TDPID_StretchTime_33)
+    {
+        bAttemptedSpecialHandling = true;
+        StretchNumber = (PropertyID - Profile.TDPID_StretchTime_00) + 1;
+        ClientMessage("Type: Time Trial Stretch Data (For Stretch Index #" $ StretchNumber $ ")");
+        if (Profile.GetTTTimeForStretch(StretchNumber, StretchTotalTime, StretchIntermediateTimes, StretchAverageSpeed, StretchDistanceRun))
+        {
+            ClientMessage("  Total Time: " $ StretchTotalTime);
+            ClientMessage("  Average Speed: " $ StretchAverageSpeed);
+            ClientMessage("  Distance Run: " $ StretchDistanceRun);
+            if (StretchIntermediateTimes.Length > 0)
+            {
+                ClientMessage("  Intermediate Times (" $ StretchIntermediateTimes.Length $ " splits):");
+                for (i = 0; i < StretchIntermediateTimes.Length; i++)
+                {
+                    ClientMessage("    - Split " $ (i+1) $ ": " $ StretchIntermediateTimes[i]);
+                }
+            }
+            else
+            {
+                ClientMessage("  Intermediate Times: None recorded or not applicable.");
+            }
+            bHandledSpecially = true;
+            bOverallValueFound = true;
+        }
+        else
+        {
+            ClientMessage("  failed to retrieve detailed stretch data via GetTTTimeForStretch.");
+            ClientMessage("  (Will attempt generic data reads below if this was the only interpretation.)");
+        }
+    }
+
+    // Key binding
+    else if (PropertyID >= Profile.TDPID_KeyAction_1 && PropertyID <= Profile.TDPID_KeyAction_49)
+    {
+        bAttemptedSpecialHandling = true;
+        ClientMessage("Type: Key Binding Data");
+        ActionIndex = PropertyID - Profile.TDPID_KeyAction_1;
+
+        if (ActionIndex >= 0 && ActionIndex < Profile.DigitalButtonActionsToCommandMapping.Length)
+        {
+            KeyActionCommandName = Profile.DigitalButtonActionsToCommandMapping[ActionIndex];
+            ClientMessage("  Action Command: '" $ KeyActionCommandName $ "' (Action Enum Index: " $ ActionIndex $ ")");
+
+            if (Profile.GetProfileSettingValueInt(PropertyID, StoredKeyBindingValue))
+            {
+                ClientMessage("  Stored Integer Value (Packed): " $ StoredKeyBindingValue);
+                
+                for (i = 0; i < Profile.MAX_NUM_KEY_BINDS; i++)
+                {
+                    KeyEnumValue = (StoredKeyBindingValue >> (i * 8)) & 0xFF;
+                    KeyBinds[i] = Profile.FindKeyName(ETDBindableKeys(KeyEnumValue)); 
+                                        
+                    DisplayKeyForLog = string(KeyBinds[i]);
+
+                    if (KeyEnumValue == 0 && KeyBinds[i] == 'None')
+                    { 
+                        DisplayKeyForLog = "None (Unbound)";
+                    }
+                    
+                    ClientMessage("    Slot " $ (i+1) $ ": Key '" $ DisplayKeyForLog $ "' (Raw Enum Val in Slot: " $ KeyEnumValue $ ")");
+                }
+                bHandledSpecially = true;
+                bOverallValueFound = true;
+            }
+            else
+            {
+                ClientMessage("  failed to read stored integer value for this key action ID.");
+            }
+        }
+        else
+        {
+            ClientMessage("  Error: Calculated ActionIndex " $ ActionIndex $ " is out of bounds for DigitalButtonActionsToCommandMapping array.");
+        }
+    }
+
+    // Enum based settings and simple bools
+    else if (!bAttemptedSpecialHandling) 
+    {
+        if (!Profile.GetProfileSettingValueId(PropertyID, IdValue))
+        {
+            Profile.GetProfileSettingValueInt(PropertyID, IdValue);
+        }
+
+        switch (PropertyID)
+        {
+            case Profile.TDPID_ControllerVibration:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Controller Vibration (Boolean/Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EControllerVibrationValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_YInversion:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Y-Axis Inversion (Boolean/Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EYInversionValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_GameDifficulty:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Game Difficulty (Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EDifficultySettingValue', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_AutoAim:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Auto-Aim (Boolean/Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EAutoAimValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_MeasurementUnits:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Measurement Units (Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EMeasurementUnitsValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_FaithOVision:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: FaithOVision (Runner Vision) (Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EFaithOVisionValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_Reticule:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Reticule (Crosshair) (Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EReticuleValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_Subtitles:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Subtitles (Boolean/Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'ESubValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_ControllerConfig:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Controller Configuration (Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EControllerConfigValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+            case Profile.TDPID_ControllerTilt:
+                bAttemptedSpecialHandling = true; ClientMessage("Type: Controller Tilt (PS3 Sixaxis) (Boolean/Enum)");
+                ClientMessage("  Interpreted Value: " $ Profile.GetEnum(enum'EProfileControllerTiltValues', IdValue) $ " (Raw Stored ID/Int: " $ IdValue $ ")");
+                bHandledSpecially = true; bOverallValueFound = true; break;
+        }
+    }
+    
+    // Known bitmasks
+    if (!bAttemptedSpecialHandling || 
+        PropertyID == Profile.TDPID_LevelUnlockMask || PropertyID == Profile.TDPID_LevelUnlockMaskHard ||
+        PropertyID == Profile.TDPID_HiddenBagMask || PropertyID == Profile.TDPID_TimeTrialUnlockMask ||
+        PropertyID == Profile.TDPID_TimeTrialQualifierMask || PropertyID == Profile.TDPID_HintsShownFlags ||
+        PropertyID == Profile.TDPID_ViewedUnlocksFlags1 || PropertyID == Profile.TDPID_ViewedUnlocksFlags2 ||
+        PropertyID == Profile.TDPID_ViewedUnlocksFlags3 || PropertyID == Profile.TDPID_ViewedUnlocksFlags4)
+    {
+        switch(PropertyID)
+        {
+            case Profile.TDPID_LevelUnlockMask: ClientMessage("Type Context: Level Unlock Mask (Normal)"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_LevelUnlockMaskHard: ClientMessage("Type Context: Level Unlock Mask (Hard)"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_HiddenBagMask: ClientMessage("Type Context: Hidden Bag Mask"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_TimeTrialUnlockMask: ClientMessage("Type Context: Time Trial Unlock Mask"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_TimeTrialQualifierMask: ClientMessage("Type Context: Time Trial Qualifier Mask"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_HintsShownFlags: ClientMessage("Type Context: Hints Shown Flags"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_ViewedUnlocksFlags1: ClientMessage("Type Context: Viewed Unlocks Flags 1"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_ViewedUnlocksFlags2: ClientMessage("Type Context: Viewed Unlocks Flags 2"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_ViewedUnlocksFlags3: ClientMessage("Type Context: Viewed Unlocks Flags 3"); bAttemptedSpecialHandling = true; break;
+            case Profile.TDPID_ViewedUnlocksFlags4: ClientMessage("Type Context: Viewed Unlocks Flags 4"); bAttemptedSpecialHandling = true; break;
+        }
+        if (bAttemptedSpecialHandling && !bHandledSpecially)
+        {
+            if (Profile.GetProfileSettingValueInt(PropertyID, IntValue))
+            {
+                ClientMessage("  Raw Integer Value (Bitmask): " $ IntValue);
+                if(PropertyID == Profile.TDPID_HiddenBagMask)
+                {
+                    currentBagsFound = 0;
+                    for(i=0; i < Profile.MAX_BAGS; ++i) if((IntValue & (1 << i)) != 0) currentBagsFound++;
+                    ClientMessage("  (Interpreted from mask: " $ currentBagsFound $ " bags marked as found)");
+                }
+                bHandledSpecially = true;
+                bOverallValueFound = true;
+            }
+            else
+            {
+                ClientMessage("  failed to read integer value for this known bitmask ID.");
+            }
+        }
+    }
+
+    // Generic data interpretations
+    ClientMessage("--------------------------------------------------------------");
+    if (bHandledSpecially && bOverallValueFound)
+    {
+        ClientMessage("Generic Data Reads (for completeness or raw value view):");
+    }
+    else if (!bOverallValueFound)
+    {
+        ClientMessage("No specific type handler matched or succeeded. Attempting Generic Data Reads:");
+    }
+    else
+    {
+        ClientMessage("Specialised data retrieval failed or not applicable. Attempting Generic Data Reads:");
+    }
+    
+    bValueFoundThisType = Profile.GetProfileSettingValueInt(PropertyID, IntValue);
+    if (bValueFoundThisType)
+    {
+        ClientMessage("  Value as Int: " $ IntValue);
+        bOverallValueFound = true;
+    }
+    else
+    {
+        ClientMessage("  Value as Int: Not found or not readable as Int.");
+    }
+
+    bValueFoundThisType = Profile.GetProfileSettingValueFloat(PropertyID, FloatValue);
+    if (bValueFoundThisType)
+    {
+        ClientMessage("  Value as Float: " $ FloatValue);
+        bOverallValueFound = true;
+    }
+    else
+    {
+        ClientMessage("  Value as Float: Not found or not readable as Float.");
+    }
+    
+    // GetProfileSettingValueId is used for enums, but show if not specifically handled as one of our listed enums.
+    // This catches cases where it might be an ID for a less common enum or a generic mapped ID.
+    bValueFoundThisType = Profile.GetProfileSettingValueId(PropertyID, IdValue);
+    if (bValueFoundThisType)
+    {
+        ClientMessage("  Value as Mapped ID/Index (from GetProfileSettingValueId): " $ IdValue);
+        bOverallValueFound = true;
+    }
+    else
+    {
+        ClientMessage("  Value as Mapped ID/Index: Not found or not readable via GetProfileSettingValueId.");
+    }
+
+    bValueFoundThisType = Profile.GetProfileSettingValue(PropertyID, StringValue);
+    if (bValueFoundThisType)
+    {
+        ClientMessage("  Value as String: '" $ StringValue $ "'");
+        bOverallValueFound = true;
+    }
+    else
+    {
+        ClientMessage("  Value as String: Not found or not readable as String.");
+    }
+    
+    ClientMessage("--------------------------------------------------------------");
+    if (!bOverallValueFound) {
+         // Check if the property even exists in the internal array of settings
+         
+        bPropertyExistsInSettingsArray = false;
+        for(i=0; i < Profile.ProfileSettings.Length; ++i)
+        {
+            if(Profile.ProfileSettings[i].ProfileSetting.PropertyId == PropertyID)
+            {
+                bPropertyExistsInSettingsArray = true;
+                break;
+            }
+        }
+        if(bPropertyExistsInSettingsArray)
+        {
+            ClientMessage("Property ID " $ PropertyID $ ": Found in profile, but no value readable via standard accessors in expected types.");
+        }
+        else
+        {
+            ClientMessage("Property ID " $ PropertyID $ ": Not found in profile settings array OR no value readable. It might be invalid or uninitialised.");
+        }
+    }
+    ClientMessage("==============================================================");
 }

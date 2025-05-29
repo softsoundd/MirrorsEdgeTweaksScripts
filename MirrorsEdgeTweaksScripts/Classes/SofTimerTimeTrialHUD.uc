@@ -5,56 +5,40 @@ class SofTimerTimeTrialHUD extends TdTimeTrialHUD
 
 var SaveLoadHandler     SaveLoad;
 var UIDataStore_TdGameData GameData;
-var(HUDIcons) Vector2D RaceTimerPos;
 var TdPlayerController  SpeedrunController;
+var(HUDIcons) Vector2D RaceTimerPos;
 
 var bool              bLoadedTimeFromSave;
 var int               SkipTicks;
 
-var int               RunCompleteMarker;
+var int               RunCompleteLiveSplitASLMarker;
 var bool              bFinalTimeLocked;
 
-var string StartMap;
-var string EndMap;
+var string            StartMap;
+var string            EndMap;
 
 // Trainer, macro, speed variables
-var vector CurrentLocation;
-var rotator CurrentRotation;
-var float PlayerSpeed;
-var vector ConvertedLocation, PlayerVelocity;
+var vector            CurrentLocation;
+var rotator           CurrentRotation;
+var float             PlayerSpeed;
+var vector            ConvertedLocation, PlayerVelocity;
 
-var float MaxVelocity, MaxHeight;
-var float LastMaxVelocityUpdateTime, LastMaxHeightUpdateTime;
-var float UpdateInterval;  // Update every 3 seconds
+var float             MaxVelocity, MaxHeight;
+var float             LastMaxVelocityUpdateTime, LastMaxHeightUpdateTime;
+var float             UpdateInterval;  // Update every 3 seconds
 
-var float MacroStartTime;
-var bool bIsMacroTimerActive;
-var float MacroFinalElapsedTime;
-var name CurrentMacroType;
+var float             MacroStartTime;
+var bool              bIsMacroTimerActive;
+var float             MacroFinalElapsedTime;
+var name              CurrentMacroType;
 
-var string TrainerHUDMessageText;
-var float TrainerHUDMessageDisplayTime;
-var float TrainerHUDMessageDuration;
+var string            TrainerHUDMessageText;
+var float             TrainerHUDMessageDisplayTime;
+var float             TrainerHUDMessageDuration;
 
-var bool ShowTrainerHUDItems;
-var bool ShowMacroFeedback;
+var bool              ShowTrainerHUDItems;
+var bool              ShowMacroFeedback;
 
-exec function SetTimeTrialOrder(string Start, string End)
-{
-    if (SaveLoad == none)
-    {
-        SaveLoad = new class'SaveLoadHandler';
-    }
-
-    SaveLoad.SaveData("StartMap", (Start));
-    SaveLoad.SaveData("EndMap", (End));
-
-    StartMap = SaveLoad.LoadData("StartMap");
-    EndMap = SaveLoad.LoadData("EndMap");
-
-    SpeedrunController.ClientMessage(StartMap);
-    SpeedrunController.ClientMessage(EndMap);
-}
 
 event PostBeginPlay()
 {
@@ -111,7 +95,7 @@ event PostBeginPlay()
     {
         GameData.TimeAttackClock = 0;
         bFinalTimeLocked = false;
-        RunCompleteMarker = 696969;
+        RunCompleteLiveSplitASLMarker = 696969;
         SaveLoad.SaveData("FinalTimeLocked", "false");
     }
     
@@ -127,6 +111,23 @@ event PostBeginPlay()
     ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1000,Y=61)");
 }
 
+exec function SetTimeTrialOrder(string Start, string End)
+{
+    if (SaveLoad == none)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
+    SaveLoad.SaveData("StartMap", (Start));
+    SaveLoad.SaveData("EndMap", (End));
+
+    StartMap = SaveLoad.LoadData("StartMap");
+    EndMap = SaveLoad.LoadData("EndMap");
+
+    //SpeedrunController.ClientMessage(StartMap);
+    //SpeedrunController.ClientMessage(EndMap);
+}
+
 function Tick(float DeltaTime)
 {
     local float RealDeltaTime;
@@ -135,23 +136,23 @@ function Tick(float DeltaTime)
 
     super(TdHUD).Tick(DeltaTime);
 
-    // This stops HUD/post process effects breaking
-    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
-
     if (SkipTicks > 0)
     {
         SkipTicks--;
         return;
     }
 
-    if (SpeedrunController == none && PlayerOwner != none)
-    {
-        SpeedrunController = TdPlayerController(PlayerOwner);
-    }
+    // This stops HUD/post process effects breaking
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 
     if (SaveLoad == none)
     {
         SaveLoad = new class'SaveLoadHandler';
+    }
+
+    if (SpeedrunController == none && PlayerOwner != none)
+    {
+        SpeedrunController = TdPlayerController(PlayerOwner);
     }
     
     if (WorldInfo.TimeDilation > 0)
@@ -180,7 +181,7 @@ function Tick(float DeltaTime)
         if (!bFinalTimeLocked && CheckFinalTTCompletion())
         {
             bFinalTimeLocked = true;
-            RunCompleteMarker = 969696;
+            RunCompleteLiveSplitASLMarker = 969696;
             SaveLoad.SaveData("FinalTimeLocked", "true");
         }
     }
@@ -208,6 +209,8 @@ function bool CheckFinalTTCompletion()
 function DrawLivingHUD()
 {
     local TdSPTimeTrialGame Game;
+    local bool bCheatsActive;
+    local bool bIllegalFramerate;
 
     super(TdTimeTrialHUD).DrawLivingHUD();
 
@@ -219,9 +222,12 @@ function DrawLivingHUD()
         DrawStarRating(Game);
         DrawTrainerItems();
 
-        if (CheckCheatsTrainerMode())
+        bCheatsActive = CheckCheatsTrainerMode();
+        bIllegalFramerate = CheckIllegalFramerateLimit();
+
+        if (bCheatsActive || bIllegalFramerate)
         {
-            DrawCheatsTrainerMessage();
+            DrawViolationMessages(bCheatsActive, bIllegalFramerate);
         }
     }
 }
@@ -252,32 +258,64 @@ function DrawRaceTimer(TdSPTimeTrialGame Game)
     DrawTextWithOutLine(pos.X, pos.Y + (YL * 0.8), DSOffset, DSOffset, LRT, WhiteColor);
 }
 
-function DrawCheatsTrainerMessage()
+function DrawViolationMessages(bool bCheatsActive, bool bIllegalFramerate)
 {
     local float Y, ShadowOffset;
+    local string Message;
 
     ShadowOffset = 2.0;
     Canvas.Font = Class'Engine'.static.GetMediumFont();
 
-    Y = Canvas.SizeY * 0.10;
+    Y = Canvas.SizeY * 0.08;
     Canvas.bCenter = true;
 
-    // Draw shadow
-    Canvas.SetPos(0 + ShadowOffset, Y + ShadowOffset);
-    Canvas.DrawColor = FontDSColor;
-    Canvas.DrawColor.A *= Square(FadeAmount);
-    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+    Message = "";
 
-    // Draw main text
-    Canvas.SetPos(0, Y);
-    Canvas.DrawColor = RedColor;
-    Canvas.DrawColor.A = byte(float(255) * FadeAmount);
-    Canvas.DrawText("Cheats + Trainer Mode active!", False, 0.60, 0.60);
+    if (bCheatsActive)
+    {
+        Message = "Cheats + Trainer Mode active!";
+    }
+
+    if (bIllegalFramerate)
+    {
+        if (Message != "")
+        {
+            Message $= "\n";
+        }
+        Message $= "Illegal framerate! 60-62 framerate limit required.";
+    }
+
+    if (Message != "")
+    {
+        // Draw shadow
+        Canvas.SetPos(0 + ShadowOffset, Y + ShadowOffset);
+        Canvas.DrawColor = FontDSColor;
+        Canvas.DrawColor.A *= Square(FadeAmount);
+        Canvas.DrawText(Message, False, 0.60, 0.60);
+
+        // Draw main text
+        Canvas.SetPos(0, Y);
+        Canvas.DrawColor = RedColor;
+        Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+        Canvas.DrawText(Message, False, 0.60, 0.60);
+    }
 }
 
 function bool CheckCheatsTrainerMode()
 {
     if (SpeedrunController.CheatClass == Class'MirrorsEdgeTweaksScripts.MirrorsEdgeCheatManager')
+    {
+        return true;
+    }
+}
+
+function bool CheckIllegalFramerateLimit()
+{
+    local float FrameRateLimit;
+
+    FrameRateLimit = class'GameEngine'.default.MaxSmoothedFrameRate;
+
+    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0)
     {
         return true;
     }
@@ -490,7 +528,7 @@ exec function DisplayTrainerHUDMessage(string Message)
 {
     TrainerHUDMessageText = Message;
     TrainerHUDMessageDisplayTime = WorldInfo.TimeSeconds;
-    TrainerHUDMessageDuration = (bIsMacroTimerActive) ? 99999.0 : 3.0;
+    TrainerHUDMessageDuration = (bIsMacroTimerActive) ? 99999.0 : 1.0;
 }
 
 exec function ToggleTrainerHUD()
@@ -532,7 +570,7 @@ exec function MacroFeedbackOff()
 defaultproperties
 {
     RaceTimerPos=(X=1000,Y=55)
-    RunCompleteMarker = 696969
+    RunCompleteLiveSplitASLMarker = 696969
     ShowTrainerHUDItems = false;
     ShowMacroFeedback = false;
 }

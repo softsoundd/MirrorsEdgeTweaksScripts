@@ -188,6 +188,7 @@ function SetupSofTimerHUD()
         }
         else if (WorldInfo.Game.IsA('TdMenuGameInfo'))
         {
+            ConsoleCommand("set TdSPHUD PopUpPos (X=96,Y=80)");
             ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1056,Y=61)"); // default position of tt star rating hud if we're done with 69 stars
         }
     }

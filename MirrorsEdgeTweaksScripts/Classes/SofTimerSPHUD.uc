@@ -142,6 +142,12 @@ event PostBeginPlay()
     // This stops the timer automatically incrementing in the main menu when we first enable speedrun mode
     bHasEverStartedNewGame = (SaveLoad.LoadData("HasEverStartedNewGame") == "true");
 
+    if (MapName != "TdMainMenu" && !bHasEverStartedNewGame)
+    {
+        bHasEverStartedNewGame = true;
+        SaveLoad.SaveData("HasEverStartedNewGame", "true");
+    }
+
     CacheMeasurementUnitInfo();
 
     // Speedrun settings

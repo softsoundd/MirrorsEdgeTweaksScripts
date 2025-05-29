@@ -1,16 +1,17 @@
 /**
- *  Dedicated class just for spam macros (speedrun legal since cheats are stripped).
- *  Also has the mutual exclusivity between interact and grab macros. MirrorsEdgeCheatManager class does not impose this restriction.
+ * Dedicated class just for spam macros (speedrun legal since cheats are stripped).
+ * Also has the mutual exclusivity between interact and grab macros. MirrorsEdgeCheatManager class does not impose this restriction.
  *
- *  Todo: Currently we're disabling the flushing of player input during tabbing/menuing as a semi-workaround to the macro not spamming during menus.
- *  This allows macros held BEFORE tabbing/menuing to continue executing when back in-game, but this does not work if the macro was spammed during.
- *  Since we rely on TdInput bindings for the macros, these only execute while we have control of the character. Need to somehow fool the game
- *  into thinking we still have player control during menus, OR rewrite this to emulate mouse scroll directly like Phoenix's (unlikely under UScript scope)
+ * Todo: Currently we're disabling the flushing of player input during tabbing/menuing as a semi-workaround to the macro not spamming during menus.
+ * This allows macros held BEFORE tabbing/menuing to continue executing when back in-game, but this does not work if the macro was spammed during.
+ * Since we rely on TdInput bindings for the macros, these only execute while we have control of the character. Need to somehow fool the game
+ * into thinking we still have player control during menus, OR rewrite this to emulate mouse scroll directly like Phoenix's (unlikely under UScript scope)
  */
 
 class MirrorsEdgeMacro extends TdCheatManager;
 
 var CheatHelperProxy HelperProxy;
+var SaveLoadHandler SaveLoad; // Instance of our SaveLoadHandler
 var bool bJumpMacroActive;
 var bool bInteractMacroActive;
 var bool bGrabMacroActive;
@@ -18,27 +19,42 @@ var bool bGrabMacroActive;
 // Active macro mode: 0 = Interact, 1 = Grab
 var int ActiveMacroMode;
 
-// Don't think this does anything but here just in case
 function PostBeginPlay()
 {
     Super.PostBeginPlay();
-    ActiveMacroMode = 0; // Default to InteractMacro
-}
-
-exec function test()
-{
-    local TdPlayerInput TdInput;
-
-    TdInput = TdPlayerInput(PlayerInput);
-    TdInput.Jump();
 }
 
 function EnsureHelperProxy()
 {
+    local string SavedMode;
+
     if (HelperProxy == None)
     {
         HelperProxy = WorldInfo.Spawn(class'CheatHelperProxy');
         HelperProxy.MacroReference = self;
+    }
+
+    if (SaveLoad == None)
+    {
+        SaveLoad = new class'SaveLoadHandler';
+    }
+
+    // Load the saved macro mode
+    if (SaveLoad != None)
+    {
+        SavedMode = SaveLoad.LoadData("ActiveMacroMode");
+        if (SavedMode == "1")
+        {
+            ActiveMacroMode = 1;
+        }
+        else // Default to InteractMacro (0) if not found or not "1"
+        {
+            ActiveMacroMode = 0;
+        }
+    }
+    else
+    {
+        ActiveMacroMode = 0; // Default to InteractMacro if SaveLoad handler couldn't be initialized
     }
 }
 
@@ -49,19 +65,27 @@ exec function SwitchMacroMode()
     {
         ActiveMacroMode = 1;
         ClientMessage("Switched to Grab macro.");
+        if (SaveLoad != None)
+        {
+            SaveLoad.SaveData("ActiveMacroMode", "1");
+        }
     }
     else
     {
         ActiveMacroMode = 0;
         ClientMessage("Switched to Interact macro.");
+        if (SaveLoad != None)
+        {
+            SaveLoad.SaveData("ActiveMacroMode", "0");
+        }
     }
 }
 
 exec function JumpMacro()
 {
+    EnsureHelperProxy();
     if (!bJumpMacroActive)
     {
-        EnsureHelperProxy();
         bJumpMacroActive = true;
         HelperProxy.LoopFunction(0.002, "MacroJump");  // Start looping at a rate of 2ms
         ConsoleCommand("set UIScene bFlushPlayerInput 0");
@@ -85,9 +109,9 @@ exec function JumpMacro_OnRelease()
 
 exec function InteractMacro()
 {
+    EnsureHelperProxy();
     if (ActiveMacroMode == 0 && !bInteractMacroActive)
     {
-        EnsureHelperProxy();
         bInteractMacroActive = true;
         HelperProxy.LoopFunction(0.002, "MacroInteract");
         ConsoleCommand("set UIScene bFlushPlayerInput 0");
@@ -111,9 +135,9 @@ exec function InteractMacro_OnRelease()
 
 exec function GrabMacro()
 {
+    EnsureHelperProxy();
     if (ActiveMacroMode == 1 && !bGrabMacroActive)
     {
-        EnsureHelperProxy();
         bGrabMacroActive = true;
         HelperProxy.LoopFunction(0.002, "MacroGrab");
         ConsoleCommand("set UIScene bFlushPlayerInput 0");
@@ -138,23 +162,20 @@ exec function GrabMacro_OnRelease()
 // Internal functions to simulate the inputs
 exec function MacroJump()
 {
-    local TdPlayerInput TdInput;
-
-    TdInput = TdPlayerInput(PlayerInput);
-    TdInput.Jump();
-    TdInput.StopJump();
+    ConsoleCommand("Jump");
+    ConsoleCommand("StopJump | Axis aUp Speed=1.0  AbsoluteAxis=100 | PrevStaticViewTarget");
 }
 
 exec function MacroInteract()
 {
-    Outer.UsePress();
-    Outer.UseRelease();
+    ConsoleCommand("UsePress");
+    ConsoleCommand("UseRelease");
 }
 
 exec function MacroGrab()
 {
-    Outer.PressedSwitchWeapon();
-    Outer.ReleasedSwitchWeapon();
+    ConsoleCommand("PressedSwitchWeapon");
+    ConsoleCommand("ReleasedSwitchWeapon");
 }
 
 function ExecuteCommand(string Command)

@@ -7,6 +7,7 @@ var rotator SavedRotation;
 var vector SavedVelocity;
 var vector SavedLastJumpLocation;
 var TdPawn.EMovement SavedMoveState;
+var TdMove NoclipMove;
 var float SavedHealth;
 var bool SavedReactionTimeState;
 var float SavedReactionTimeEnergy;
@@ -57,16 +58,6 @@ var array<DollyKeyframe> Keyframes;
 // Prototype cheat manager vars
 var private Vector pP1;
 var private Vector pP2;
-var private Vector oldPos;
-var private TdAIController DebugController;
-var private Pawn aPawn;
-var private Vector OldHitLocation;
-var private bool bStefan;
-var private bool bShowTestAnimHud;
-var private float SlomoSpeed;
-var private Vector enemyPos;
-var private TdPawn ActiveActor;
-
 
 exec function ListCheats()
 {
@@ -434,12 +425,12 @@ exec function Noclip()
             bCheatFlying = true;
             Pawn.CheatGhost(); // Previously I didn't include this but turns out it's needed to truly disable collision when activating noclip while jumping
             Outer.GotoState('PlayerFlying');
-            PlayerPawn.bAllowMoveChange = false;  // Prevents attack/q turns and other actions from interrupting flying state
+            PlayerPawn.bAllowMoveChange = false; // Prevents attack/q turns and other actions from interrupting flying state
             PlayerPawn.AccelRate = 999999;
             ConsoleCommand("set TdHudEffectManager UncontrolledFallingEffectSpeed 0");
 
             bMonitorFallHeight = false;
-            bMonitorNoclip = true; // Enable death monitoring
+            bMonitorNoclip = true;
             EnsureHelperProxy();
             ConsoleCommand("DisplayTrainerHUDMessage Noclip enabled");
         }
@@ -474,7 +465,7 @@ function FallHeightMonitoring()
 }
 
 // Keypress and death monitoring while in noclip
-function NoclipMonitoring()
+function NoclipMonitoring(float DeltaTime)
 {
     local TdPawn PlayerPawn;
     local TdPlayerController PC;
@@ -493,13 +484,16 @@ function NoclipMonitoring()
         bMonitorNoclip = false; // Stop monitoring further
     }
 
+    myPawn.ReleaseCameraConstraintsAgainstWall();
+    ConsoleCommand("set TdMove bUseCameraCollision false");
+
     if (PC != None && PC.PlayerInput != None)
     {
         if (PC.PlayerInput.PressedKeys.Find('E') != -1)
         {
             if (PlayerPawn.AirSpeed <= 20000)
             {
-                PlayerPawn.AirSpeed += 100;
+                PlayerPawn.AirSpeed += 2500 * DeltaTime;
             }
         }
 
@@ -507,17 +501,17 @@ function NoclipMonitoring()
         {
             if (PlayerPawn.AirSpeed >= 200)
             {
-                PlayerPawn.AirSpeed -= 100;
+                PlayerPawn.AirSpeed -= 2500 * DeltaTime;
             }
         }
 
         if (PC.PlayerInput.PressedKeys.Find('LeftShift') != -1)
         {
-            PC.PlayerInput.aUp = -1.0;
+            PC.PlayerInput.aUp = -50 * DeltaTime;
         }
         else
         {
-            PC.PlayerInput.aUp = 0.0;
+            PC.PlayerInput.aUp = 0;
         }
     }
 }
@@ -2025,7 +2019,7 @@ function OnTick(float DeltaTime)
 
     if (bMonitorNoclip)
     {
-        NoclipMonitoring();
+        NoclipMonitoring(DeltaTime);
     }
 
     if (bMonitorDolly)

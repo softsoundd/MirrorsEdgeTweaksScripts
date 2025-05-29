@@ -1,5 +1,5 @@
 /**
- *  Meme class that stops held weapons from preventing wallrun kicks, and prevents non-walking states from unzooming the sniper.
+ *  Meme class that removes restrictions on weapons.
  *
  *  Trickshot time baby
  */
@@ -10,7 +10,15 @@ class TrickshotPlayerController extends TdPlayerController
     hidecategories(Navigation)
     implements(TdController);
 
+var SaveLoadHandler SaveLoad;
 var transient float LastKnownScore;
+
+var bool bBruteforce;
+var bool bIsHoldingZoomKey;
+var bool bEnableHoldToZoom;
+
+var Name ZoomKey;
+var Name WallrunFireKey;
 
 simulated event PostBeginPlay()
 {
@@ -43,6 +51,8 @@ simulated event PostBeginPlay()
     {
         LastKnownScore = 0;
     }
+
+    bEnableHoldToZoom = false; // Default to original zoom behavior
 }
 
 event PlayerTick(float DeltaTime)
@@ -51,14 +61,12 @@ event PlayerTick(float DeltaTime)
     local TdWeapon_Sniper_BarretM95 SniperWeapon;
     local float CurrentScore;
 
-    // Kill detection
     if (PlayerReplicationInfo != none)
     {
         CurrentScore = PlayerReplicationInfo.Score;
         if (CurrentScore > LastKnownScore)
         {
             ConsoleCommand("DisplayHitmarker");
-
             LastKnownScore = CurrentScore; // Update for the next check
         }
     }
@@ -79,7 +87,7 @@ event PlayerTick(float DeltaTime)
         ActualAccelY = 0;
         ActualAccelZ = 0;
     }
-    super(PlayerController).PlayerTick(DeltaTime);
+    super(PlayerController).PlayerTick(DeltaTime); // Original super call position
     UpdateReactionTime(DeltaTime);
 
     if(!WorldInfo.IsPlayInEditor())
@@ -87,29 +95,47 @@ event PlayerTick(float DeltaTime)
         UpdateMomentumStats(DeltaTime);
     }
 
+    if (bEnableHoldToZoom && bIsHoldingZoomKey)
+    {
+        if (ZoomKey != '' && PlayerInput.PressedKeys.Find(ZoomKey) == -1) 
+        {
+            self.UnZoom();
+            bIsHoldingZoomKey = false;
+        }
+    }
+
     // Make sniper OP
     HeavyWeapon = TdWeapon_Heavy(myPawn.Weapon);
-    if (HeavyWeapon.WeaponType != EWT_Light)
+    if (HeavyWeapon != none && HeavyWeapon.WeaponType != EWT_Light)
     {
         HeavyWeapon.WeaponType = EWT_Light;
     }
 
     SniperWeapon = TdWeapon_Sniper_BarretM95(myPawn.Weapon);
-    if (SniperWeapon.AdditionalUnzoomedSpread != 0)
+    if (SniperWeapon != none && SniperWeapon.AdditionalUnzoomedSpread != 0)
     {
         SniperWeapon.AdditionalUnzoomedSpread = 0;
     }
 }
 
+exec function SetWallrunFireKey(Name NewKeyName) 
+{
+    if (NewKeyName == '')
+    {
+        ClientMessage("Alternate Attack key cannot be empty. Current key: " $ string(WallrunFireKey));
+        return;
+    }
+    WallrunFireKey = NewKeyName;
+    ClientMessage("Movement Condition Attack key set to: " $ string(WallrunFireKey));
+
+    SaveLoad.SaveData("WallrunFireKey", string(WallrunFireKey));
+}
+
 exec function AttackPress()
 {
-    local TdPlayerController PC;
-
-    PC = TdPlayerController(Pawn.Controller);
-
-    if (myPawn != none && (myPawn.MovementState == 4 || myPawn.MovementState == 5))
+    if ((myPawn.MovementState == 4 || myPawn.MovementState == 5))
     {
-        if (PC.PlayerInput.PressedKeys.Find('RightMouseButton') != -1)
+        if (WallrunFireKey != '' && PlayerInput.PressedKeys.Find(WallrunFireKey) != -1)
         {
             StartFire();
             return;
@@ -133,38 +159,240 @@ exec function AttackPress()
 
 exec function StartFire(optional byte FireModeNum)
 {
-    super(PlayerController).StartFire(FireModeNum);
+    if (!bBruteforce)
+    {
+        if(((myPawn.Weapon.IsA('TdWeapon_Light') && myPawn.Moves[myPawn.MovementState].MovementGroup >= 2) || myPawn.Weapon.IsA('TdWeapon_Heavy') && myPawn.Moves[myPawn.MovementState].MovementGroup >= 1) || myPawn.WeaponAnimState == 4)
+        {
+            return;
+        }
+        super(PlayerController).StartFire(FireModeNum);
+    }
+    else
+    {
+        super(PlayerController).StartFire(FireModeNum);
+    }
 }
 
-function SetCinematicMode(bool bInCinematicMode, bool bHidePlayer, bool bAffectsHUD, bool bAffectsMovement, bool bAffectsTurning, bool bAffectsButtons, bool bSwitchSoundMode)
+exec function SetZoomKey(Name NewKeyName)
 {
+    local TdProfileSettings Profile;
+    local int ZoomAction;
+    local name KeyBinds[4];
+    local int KeyActionProfileId; // The TDPID_KeyAction_XX value
+    local int KeyBindingValue;
+    local int KeyEnumValue;
+    local int KeyBindIdx;
+
+    if (NewKeyName == '')
+    {
+        ClientMessage("Zoom key cannot be empty. Current key: " $ string(ZoomKey));
+        return;
+    }
+    ZoomKey = NewKeyName;
+    ClientMessage("Zoom key set to: " $ string(ZoomKey));
+
+    Profile = GetProfileSettings();
+    if (Profile == none)
+    {
+        ClientMessage("Failed to get profile settings.");
+        return;
+    }
+    
+    ZoomAction = Profile.GetDBAFromCommand("GBA_ZoomWeapon");
+
+    KeyActionProfileId = 501 + ZoomAction; 
+
+    KeyBinds[0] = NewKeyName;
+
+    KeyBindingValue = 0; 
+    for (KeyBindIdx = 0; KeyBindIdx < 1; KeyBindIdx++)
+    {
+        if (KeyBinds[KeyBindIdx] != 'None')
+        {
+            KeyEnumValue = Profile.FindKeyEnum(KeyBinds[KeyBindIdx]); 
+            if (KeyEnumValue != -1)
+            {
+                KeyBindingValue = KeyBindingValue | (KeyEnumValue << (KeyBindIdx * 8));
+            }
+        }
+    }
+
+    if (!Profile.SetProfileSettingValueInt(KeyActionProfileId, KeyBindingValue))
+    {
+        ClientMessage("Failed to set keybind via SetProfileSettingValueInt. Profile not modified for this keybind.");
+        return; 
+    }
+
+    if (PlayerInput != none)
+    {
+        Profile.ApplyAllKeyBindings(PlayerInput); 
+        PlayerInput.SaveConfig(); 
+    }
+
+    if (OnlinePlayerData != none)
+    {
+        OnlinePlayerData.SaveProfileData();
+    }
 }
 
-reliable client simulated function ClientSetCinematicMode(bool bInCinematicMode, bool bAffectsMovement, bool bAffectsTurning, bool bAffectsHUD)
+exec function HoldToZoom()
 {
+    bEnableHoldToZoom = !bEnableHoldToZoom;
+    if (bEnableHoldToZoom)
+    {
+        ClientMessage("Hold to zoom enabled");
+
+        if (ZoomKey != '' && PlayerInput.PressedKeys.Find(ZoomKey) == -1)
+        {
+            bIsHoldingZoomKey = false;
+        }
+    }
+    else
+    {
+        ClientMessage("Hold to zoom disabled");
+
+        if (bIsHoldingZoomKey) {
+            self.UnZoom();
+            bIsHoldingZoomKey = false;
+        }
+    }
 }
 
-// Overwritten version from TdPlayerController where we strip the bCanZoom function and movestate checks
 exec function ZoomWeapon()
 {
     local TdWeapon TdW;
     local float FOV, Rate, delay;
 
-    TdW = TdWeapon(Pawn.Weapon);
-
-    if(TdW != none && !TdW.IsZooming())
+    if (bEnableHoldToZoom)
     {
-        TdW.ToggleZoom(FOV, Rate, delay);
-        StartZoom(FOV, Rate, delay);
+        if (!bIsHoldingZoomKey && PlayerInput.PressedKeys.Find(ZoomKey) != -1)
+        {
+            TdW = TdWeapon(Pawn.Weapon);
+
+            if (TdW != none) 
+            {
+                TdW.ToggleZoom(FOV, Rate, delay);
+                self.StartZoom(FOV, Rate, delay);
+                bIsHoldingZoomKey = true; 
+            }
+        }
+    }
+    else
+    {
+        TdW = TdWeapon(Pawn.Weapon);
+        if(TdW != none)
+        {
+            TdW.ToggleZoom(FOV, Rate, delay);
+            self.StartZoom(FOV, Rate, delay);
+        }
     }
 }
 
-// stop any other state that might make us unzoom the sniper, shorten wallkick targetting distance
+function Reset()
+{
+    super.Reset();
+    bIsHoldingZoomKey = false;
+}
+
+reliable client simulated function ClientRestart(Pawn NewPawn)
+{
+    super.ClientRestart(NewPawn);
+    bIsHoldingZoomKey = false;
+}
+
+function PawnDied(Pawn inPawn)
+{
+    super.PawnDied(inPawn);
+    if (bIsHoldingZoomKey)
+    {
+        self.UnZoom();
+        bIsHoldingZoomKey = false;
+    }
+}
+
+function SetCinematicMode(bool bInCinematicMode, bool bHidePlayer, bool bAffectsHUD, bool bAffectsMovement, bool bAffectsTurning, bool bAffectsButtons, bool bSwitchSoundMode)
+{
+    if (!bBruteforce)
+    {
+        if(bInCinematicMode)
+        {
+            if(bSwitchSoundMode)
+            {
+                SetSoundMode(7);
+            }
+            SetTimer(1.2, false, 'CallSkippablePopUp');        
+        }
+        else
+        {
+            if(bSwitchSoundMode)
+            {
+                ClearSoundMode();
+            }
+        }
+        super(PlayerController).SetCinematicMode(bInCinematicMode, bHidePlayer, bAffectsHUD, bAffectsMovement, bAffectsTurning, bAffectsButtons, bSwitchSoundMode);
+    }
+}
+
+reliable client simulated function ClientSetCinematicMode(bool bInCinematicMode, bool bAffectsMovement, bool bAffectsTurning, bool bAffectsHUD)
+{
+    if (!bBruteforce)
+    {
+        bCinematicMode = bInCinematicMode;
+        if((myHUD != none) && bAffectsHUD)
+        {
+            myHUD.bShowHUD = !bCinematicMode;
+        }
+        if(bAffectsMovement)
+        {
+            IgnoreMoveInput(bCinematicMode);
+        }
+        if(bAffectsTurning)
+        {
+            IgnoreLookInput(bCinematicMode);
+        }
+    }
+}
+
+function OnTdDisablePlayerInput(SeqAct_TdDisablePlayerInput Action)
+{
+    if (!bBruteforce)
+    {
+        if(Action.bSetCinematicMode)
+        {
+            UnZoom();
+            myPawn.DropWeapon();
+            SetCinematicMode(true, false, false, Action.bDisablePlayerMoveInput, Action.bDisablePlayerLookInput, true, true);        
+        }
+        else
+        {
+            IgnoreMoveInput(Action.bDisablePlayerMoveInput);
+            IgnoreLookInput(Action.bDisablePlayerLookInput);
+        }
+        IgnoreButtonInput(true);
+        bDuck = 0;
+        bReleasedJump = true;
+        bGodMode = true;
+        if(Action.bDisableSkipCutscenes)
+        {
+            bDisableSkipCutscenes = true;
+        }
+    }
+}
+
+exec function Bruteforce()
+{
+    bBruteforce = !bBruteforce;
+    ClientMessage("Trickshot bruteforce mode set to " $ bBruteforce);
+}
+
+// Stop any other state that might make us unzoom the sniper, shorten wallkick targetting distance, make collats work
 function AdditionalTrickshotSetup()
 {
     ConsoleCommand("set TdMove bShouldUnzoom false");
     ConsoleCommand("set TdMove_MeleeBase TargetingMaxDistance 50");
     ConsoleCommand("set TdMove_MeleeAir TargetingMaxDistance 50");
+    ConsoleCommand("set TdBotPawn bIgnoreForAITraces true");
+    ConsoleCommand("set TdWeapon PassThroughLimit 999999");
 }
 
 function SetupHitmarkerHUD()
@@ -276,5 +504,7 @@ function CheckIntendedGameMode()
 
 defaultproperties
 {
+    ZoomKey="F"
+    WallrunFireKey="RightMouseButton"
     LastKnownScore = 0
 }
