@@ -3,7 +3,7 @@ class SofTimerTutorialHUD extends TdTutorialHUD
     config(Game)
     hidecategories(Navigation);
 
-var SaveLoadHandler        SaveLoad;
+var SaveLoadHandlerSTHUD   SaveLoad;
 var UIDataStore_TdGameData GameData;
 var TdPlayerController     SpeedrunController;
 var TdProfileSettings      Profile;
@@ -17,6 +17,7 @@ var bool              bLoadedTimeFromSave;
 var int               SkipTicks;
 
 var transient bool    bHasEverStartedNewGame;
+var transient bool    bLoadedTimeFromProfileThisSession;
 
 var bool              HundredPercentMode;
 var bool              ShowBagHUD;
@@ -31,7 +32,7 @@ var vector            ConvertedLocation, PlayerVelocity;
 
 var float             MaxVelocity, MaxHeight;
 var float             LastMaxVelocityUpdateTime, LastMaxHeightUpdateTime;
-var float             UpdateInterval;  // Update every 3 seconds
+var float             UpdateInterval;
 
 var float             MacroStartTime;
 var bool              bIsMacroTimerActive;
@@ -75,7 +76,7 @@ event PostBeginPlay()
 
     if (SaveLoad == none)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
 
     CacheMeasurementUnitInfo();
@@ -91,6 +92,8 @@ event PostBeginPlay()
         bHasEverStartedNewGame = true;
         SaveLoad.SaveData("HasEverStartedNewGame", "true");
     }
+
+    SaveLoad.SaveData("bLoadedTimeFromProfileThisSession", "true");
 }
 
 function Tick(float DeltaTime)
@@ -109,7 +112,7 @@ function Tick(float DeltaTime)
 
     if (SaveLoad == none)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
     
     if (SpeedrunController == none && PlayerOwner != none)
@@ -158,7 +161,7 @@ event Destroyed()
 {
     if (SaveLoad == none)
     {
-         SaveLoad = new class'SaveLoadHandler';
+         SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
     SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
     

@@ -3,7 +3,7 @@ class MirrorsEdgeTrainerTimeTrialHUD extends TdTimeTrialHUD
     config(Game)
     hidecategories(Navigation);
 
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandlerTHUD SaveLoad;
 
 // Tracking variables
 var vector CurrentLocation;
@@ -98,7 +98,7 @@ event PostBeginPlay()
 
     if (SaveLoad == None)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerTHUD';
     }
 
     // Load HUD config just once
@@ -108,7 +108,7 @@ event PostBeginPlay()
     SerialisedVector = SaveLoad.LoadData("TimerLocation");
     if (SerialisedVector != "")
     {
-        TimerLocation = class'SaveLoadHandler'.static.DeserialiseVector(SerialisedVector);
+        TimerLocation = class'SaveLoadHandlerTHUD'.static.DeserialiseVector(SerialisedVector);
     }
     
     // Initialise the max values and timers
@@ -306,7 +306,7 @@ exec function SetHUDTimerLocation(float X, float Y, float Z)
     TimerLocation.X = X;
     TimerLocation.Y = Y;
     TimerLocation.Z = Z;
-    SaveLoad.SaveData("TimerLocation", class'SaveLoadHandler'.static.SerialiseVector(TimerLocation));
+    SaveLoad.SaveData("TimerLocation", class'SaveLoadHandlerTHUD'.static.SerialiseVector(TimerLocation));
 }
 
 exec function StartMacroTimer(name MacroType)

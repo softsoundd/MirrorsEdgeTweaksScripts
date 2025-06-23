@@ -7,11 +7,12 @@ class TrickshotHUD extends TdSPHUD
     config(Game)
     hidecategories(Navigation);
 
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandlerTSHUD SaveLoad;
 
 var string HitmarkerText;
 var float HitmarkerDisplayTime;
-var float HitmarkerDuration;
+var float HitmarkerPersistDuration;
+var float HitmarkerFadeDuration;
 
 var bool ShowHitmarker;
 
@@ -33,7 +34,6 @@ function DrawTextWithShadow(string Text, float X, float Y, float ShadowOffset)
     ShadowColor.A = ShadowAlphaByte;
     TextColor.A = AlphaByte;
 
-    // Shadow
     Canvas.SetPos(X + 3, Y - 40);
     Canvas.DrawColor = ShadowColor;
     Canvas.DrawText(Text, False, 1.6, 1.6);
@@ -50,18 +50,16 @@ function DrawTextWithShadow(string Text, float X, float Y, float ShadowOffset)
     Canvas.DrawColor = ShadowColor;
     Canvas.DrawText(Text, False, 1.6, 1.6);
 
-    // Main text
     Canvas.SetPos(X + 2, Y - 35);
     Canvas.DrawColor = TextColor;
     Canvas.DrawText(Text, False, 1.4, 1.4);
 }
 
-
-event PostBeginPlay()
+function PostBeginPlay()
 {
     super.PostBeginPlay();
 
-    SaveLoad = new class'SaveLoadHandler';
+    SaveLoad = new class'SaveLoadHandlerTSHUD';
     if (SaveLoad != None)
     {
         ShowHitmarker = (SaveLoad.LoadData("ShowHitmarker") == "") ? true : bool(SaveLoad.LoadData("ShowHitmarker"));
@@ -76,13 +74,11 @@ function Tick(float DeltaTime)
 {
     super(TdHUD).Tick(DeltaTime);
 
-    if (EffectManager != None)
-    {
-        EffectManager.Update(DeltaTime, RealTimeRenderDelta);
-    }
+    EffectManager.Update(DeltaTime, RealTimeRenderDelta);
 }
 
-// Overridden parent function to return early so we cancel the scope black fade
+// Overridden parent function to return early so we cancel the scope black fade.
+// This prevents the default screen blink effect when certain actions occur.
 exec function TriggerCustomBlink(float InFadeOutTime, float InFadeInTime, optional bool bRealTime, optional delegate<OnMaxFade> InOnMaxFade)
 {
     return;
@@ -111,9 +107,16 @@ function DrawHitmarker()
         {
             ElapsedTime = CurrentTime - HitmarkerDisplayTime;
 
-            if (ElapsedTime <= HitmarkerDuration && HitmarkerDuration > 0)
+            if (ElapsedTime <= (HitmarkerPersistDuration + HitmarkerFadeDuration))
             {
-                FadeAmount = 1.0 - (ElapsedTime / HitmarkerDuration);
+                if (ElapsedTime <= HitmarkerPersistDuration)
+                {
+                    FadeAmount = 1.0;
+                }
+                else
+                {
+                    FadeAmount = 1.0 - ((ElapsedTime - HitmarkerPersistDuration) / HitmarkerFadeDuration);
+                }
                 FadeAmount = FClamp(FadeAmount, 0.0, 1.0);
 
                 Y = Canvas.SizeY * 0.50;
@@ -140,16 +143,18 @@ exec function DisplayHitmarker()
 {
     HitmarkerText = "X";
     HitmarkerDisplayTime = WorldInfo.RealTimeSeconds;
-    HitmarkerDuration = 0.25;
+    HitmarkerPersistDuration = 0.10;
+    HitmarkerFadeDuration = 0.25;
     FadeAmount = 1.0;
 }
+
 
 exec function ToggleHitmarker()
 {
     ShowHitmarker = !ShowHitmarker;
     if (SaveLoad != None)
     {
-       SaveLoad.SaveData("ShowHitmarker", string(ShowHitmarker));
+        SaveLoad.SaveData("ShowHitmarker", string(ShowHitmarker));
     }
 
     if (!ShowHitmarker)
@@ -164,4 +169,6 @@ defaultproperties
     ShowHitmarker = true
     FontDSColor=(B=0,G=0,R=0,A=255)
     FadeAmount=1.0
+    HitmarkerPersistDuration = 0.25
+    HitmarkerFadeDuration = 0.25
 }

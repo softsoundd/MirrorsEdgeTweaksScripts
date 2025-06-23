@@ -3,8 +3,8 @@ class SofTimerSPHUD extends TdSPHUD
     config(Game)
     hidecategories(Navigation);
 
-var SaveLoadHandler     SaveLoad;
-var UIDataStore_TdGameData GameData;
+var SaveLoadHandlerSTHUD     SaveLoad;
+var UIDataStore_TdGameData   GameData;
 var TdPlayerController  SpeedrunController;
 var TdProfileSettings   Profile;
 var(HUDIcons) Vector2D  TimerPos;
@@ -23,6 +23,7 @@ var bool              bLevelCompleted;
 var float             LastSplitTime;
 
 var transient bool    bHasEverStartedNewGame;
+var transient bool    bLoadedTimeFromProfileThisSession;
 
 // Chapter 4 (Subway) variables
 var bool              bAfterElevatorCrash;
@@ -34,7 +35,11 @@ var bool              bRemovedMallUnload;
 var bool              bEnteredLoadingBay;
 
 // Chapter 9 (Scraper) variables.
+var bool              bHeliExists;
+var bool              bKillBotsFired;
 var bool              bHeliReadyForGrab;
+var bool              b1PAnimPlayed;
+var bool              bTouchedDeathVolume;
 
 // Run completion variables
 var bool              bFinalTimeLocked;
@@ -85,7 +90,7 @@ var vector            ConvertedLocation, PlayerVelocity;
 
 var float             MaxVelocity, MaxHeight;
 var float             LastMaxVelocityUpdateTime, LastMaxHeightUpdateTime;
-var float             UpdateInterval;  // Update every 3 seconds
+var float             UpdateInterval;
 
 var float             MacroStartTime;
 var bool              bIsMacroTimerActive;
@@ -135,7 +140,7 @@ event PostBeginPlay()
 
     if (SaveLoad == none)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
 
     // Load the flag that indicates if a new game has ever been started for the active game session
@@ -146,6 +151,29 @@ event PostBeginPlay()
     {
         bHasEverStartedNewGame = true;
         SaveLoad.SaveData("HasEverStartedNewGame", "true");
+    }
+
+    if (SpeedrunController == none && PlayerOwner != none)
+    {
+        SpeedrunController = TdPlayerController(PlayerOwner);
+    }
+    if (Profile == none && SpeedrunController != none)
+    {
+        Profile = SpeedrunController.GetProfileSettings();
+    }
+
+    // Check if we've already loaded from the profile in this game session
+    bLoadedTimeFromProfileThisSession = (SaveLoad.LoadData("bLoadedTimeFromProfileThisSession") == "true");
+
+    // If this is the first time loading a map in this session (and it's not a new game), attempt to load the saved time from the game's save file
+    if (Profile != none && MapName != "TdMainMenu" && !bLoadedTimeFromProfileThisSession)
+    {
+        LoadSavedCheckpointTime();
+        
+        bLoadedTimeFromProfileThisSession = true;
+        SaveLoad.SaveData("bLoadedTimeFromProfileThisSession", "true");
+
+        SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
     }
 
     CacheMeasurementUnitInfo();
@@ -181,7 +209,7 @@ event PostBeginPlay()
     LastMaxHeightUpdateTime = WorldInfo.TimeSeconds;
     UpdateInterval = 3.0;
 
-    // --- Initialise level packages for each chapter. Unless otherwise changed, declared loads are RTA, and declared unloads are LRT ---
+    // --- Initialise level packages for each chapter. Unless otherwise changed by inbounds routes, declared loads are RTA and declared unloads are LRT ---
 
     if (MapName == "Edge_p")
     {
@@ -759,6 +787,11 @@ function PlayerOwnerRestart()
     super.PlayerOwnerRestart();
     SkipTicks = 3;
     bBagPopUpCalled = false;
+
+    if (WorldInfo.GetMapName() == "Scraper_p")
+    {
+        bTouchedDeathVolume = false;
+    }
 }
 
 // Tick: Main loop updates timer and saves state when needed
@@ -784,7 +817,12 @@ function Tick(float DeltaTime)
 
     if (SaveLoad == none)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
+    }
+
+    if (SaveLoad.LoadData("bNewMapSavePending") == "true")
+    {
+        SaveLoad.SaveData("bNewMapSavePending", "false");
     }
 
     if (SpeedrunController == none && PlayerOwner != none)
@@ -800,6 +838,16 @@ function Tick(float DeltaTime)
             GameData.TimeAttackClock = float(SavedTimeStr);
         }
         bLoadedTimeFromSave = true;
+    }
+
+    // Make timer ignore time dilation
+    if (WorldInfo.TimeDilation > 0)
+    {
+        RealDeltaTime = DeltaTime / WorldInfo.TimeDilation;
+    }
+    else
+    {
+        RealDeltaTime = DeltaTime;
     }
 
     if (HundredPercentMode && ShowBagHUD)
@@ -838,16 +886,6 @@ function Tick(float DeltaTime)
     }
 
     MapName = WorldInfo.GetMapName();
-    
-    // Make timer ignore time dilation
-    if (WorldInfo.TimeDilation > 0)
-    {
-        RealDeltaTime = DeltaTime / WorldInfo.TimeDilation;
-    }
-    else
-    {
-        RealDeltaTime = DeltaTime;
-    }
 
     // Chapter 2-specific monitoring
     if (MapName == "Stormdrain_p")
@@ -1024,25 +1062,29 @@ function Tick(float DeltaTime)
         }
 
         // Run completion
-        if (!bFinalTimeLocked && CheckHeliInteractionComplete())
+        if (!bFinalTimeLocked && MonitorShardHelipad())
         {
-            if (!HundredPercentMode)
+            if (CheckHeliInteractionComplete())
             {
-                RunComplete = true;
-            }
-            else
-            {
-                if (Profile.NumBagsFoundTotal() == 30)
+                if (!HundredPercentMode)
                 {
                     RunComplete = true;
                 }
-            }
+                else
+                {
+                    if (Profile.NumBagsFoundTotal() == 30)
+                    {
+                        RunComplete = true;
+                    }
+                }
 
-            if (RunComplete)
-            {
-                bFinalTimeLocked = true;
-                RunCompleteLiveSplitASLMarker = 987654321;
-                SaveLoad.SaveData("FinalTimeLocked", "true");
+                if (RunComplete)
+                {
+                    bFinalTimeLocked = true;
+                    RunCompleteLiveSplitASLMarker = 987654321;
+                    SaveLoad.SaveData("FinalTimeLocked", "true");
+                    SpeedrunController.ClientMessage("Final time - " $ GetTimeString(GameData.TimeAttackClock));
+                }
             }
         }
     }
@@ -1244,24 +1286,33 @@ function bool IsUnloadingAnyLevel()
 function bool IsLevelCompleted()
 {
     local TdSPGame CurrentGame;
+
     CurrentGame = TdSPGame(WorldInfo.Game);
     if (CurrentGame != none)
-        return (CurrentGame.OnLCAsyncHelper.NextLevelName != "");
+    {
+        return (CurrentGame.OnLCAsyncHelper.NextLevelName != "");       
+    }
     return false;
 }
 
 function bool IsPackageInList(string PackageName, array<string> PackageList)
 {
     local int i;
+
     for (i = 0; i < PackageList.Length; i++)
+    {
         if (PackageName == PackageList[i])
+        {
             return true;
+        }
+    }
     return false;
 }
 
 function RemovePackageIfPresent(out array<string> PackageList, string PackageName)
 {
     local int Index;
+    
     Index = PackageList.Find(PackageName);
     if (Index != INDEX_NONE)
     {
@@ -1530,68 +1581,109 @@ function bool MonitorShardLevelLoadsAfterFinalElevator()
     return IsActiveCheckpoint("Server_room");
 }
 
+function bool MonitorShardHelipad()
+{
+    return IsActiveCheckpoint("End_game");
+}
+
 // Check if the heli was actually grabbed and fired the success branch in kismet
 function bool CheckHeliInteractionComplete()
 {
     local Sequence CurrentSeq, SubSeq;
     local SequenceObject SeqObj;
     local SeqEvent_RemoteEvent RemoteEvent;
+    local SeqEvent_Touch TouchEvent;
     local SeqAct_Interp MatineeAction;
     local array<Sequence> SequencesToCheck;
     local int i;
-    local bool bHeliExists;
-    local bool bKillBotsFired;
+    local Pawn PlayerPawn;
+    local SkeletalMeshComponent PlayerMesh;
+    local AnimNodeSequence SeqNode;
+    local AnimSequence ActiveSequence;
 
-    CurrentSeq = WorldInfo.GetGameSequence();
-    if (CurrentSeq == None)
-        return false;
-
-    SequencesToCheck.AddItem(CurrentSeq);
-
-    while (SequencesToCheck.Length > 0)
+    if (bTouchedDeathVolume)
     {
-        CurrentSeq = SequencesToCheck[SequencesToCheck.Length - 1];
-        SequencesToCheck.Remove(SequencesToCheck.Length - 1, 1);
+        return false;
+    }
 
-        for (i = 0; i < CurrentSeq.SequenceObjects.Length; i++)
+    if (!b1PAnimPlayed && PlayerOwner != None)
+    {
+        PlayerPawn = PlayerOwner.Pawn;
+        if (PlayerPawn != None)
         {
-            SeqObj = CurrentSeq.SequenceObjects[i];
-            RemoteEvent = SeqEvent_RemoteEvent(SeqObj);
-            if (RemoteEvent != None)
+            PlayerMesh = PlayerPawn.Mesh;
+            if (PlayerMesh != None)
             {
-                if (RemoteEvent.EventName == 'heli_in_position')
+                foreach PlayerMesh.AllAnimNodes(class'AnimNodeSequence', SeqNode)
                 {
-                    bHeliExists = true;
-                }
-                else if (RemoteEvent.EventName == 'KillBots' && RemoteEvent.TriggerCount > 0)
-                {
-                    bKillBotsFired = true;
+                    if (SeqNode != None && SeqNode.bPlaying && SeqNode.NodeTotalWeight > 0.1f)
+                    {
+                        ActiveSequence = SeqNode.AnimSeq;
+                        if (ActiveSequence != None && ActiveSequence.SequenceName == 'jacknife02' && ActiveSequence.Outer.Name == 'AS_CS_SP09_JacknifeDeath_Faith1P')
+                        {
+                            b1PAnimPlayed = true;
+                            break; 
+                        }
+                    }
                 }
             }
+        }
+    }
 
-            if (!bHeliReadyForGrab)
+    CurrentSeq = WorldInfo.GetGameSequence();
+    if (CurrentSeq != None)
+    {
+        SequencesToCheck.AddItem(CurrentSeq);
+        while (SequencesToCheck.Length > 0)
+        {
+            CurrentSeq = SequencesToCheck[SequencesToCheck.Length - 1];
+            SequencesToCheck.Remove(SequencesToCheck.Length - 1, 1);
+
+            for (i = 0; i < CurrentSeq.SequenceObjects.Length; i++)
             {
+                SeqObj = CurrentSeq.SequenceObjects[i];
+                
+                TouchEvent = SeqEvent_Touch(SeqObj);
+
+                if (TouchEvent != None && TouchEvent.ObjName == "Trigger_9 Touch")
+                {
+                    if (TouchEvent.TouchedList.Length > 0)
+                    {
+                        // If we touched the death volume, don't allow the timer to stop if we grabbed the heli
+                        bTouchedDeathVolume = true;
+                        return false;
+                    }
+                }
+                
+                RemoteEvent = SeqEvent_RemoteEvent(SeqObj);
+                if (RemoteEvent != None)
+                {
+                    if (RemoteEvent.EventName == 'heli_in_position')
+                    {
+                        bHeliExists = true;
+                    }
+                    else if (RemoteEvent.EventName == 'KillBots' && RemoteEvent.TriggerCount > 0)
+                    {
+                        bKillBotsFired = true;
+                    }
+                }
+
                 MatineeAction = SeqAct_Interp(SeqObj);
                 if (MatineeAction != None && MatineeAction.Name == 'SeqAct_Interp_2' && MatineeAction.bIsPlaying)
                 {
                     bHeliReadyForGrab = true;
                 }
-            }
 
-            SubSeq = Sequence(SeqObj);
-            if (SubSeq != None)
-            {
-                SequencesToCheck.AddItem(SubSeq);
+                SubSeq = Sequence(SeqObj);
+                if (SubSeq != None)
+                {
+                    SequencesToCheck.AddItem(SubSeq);
+                }
             }
         }
     }
 
-    if (bHeliExists && bHeliReadyForGrab && bKillBotsFired)
-    {
-        return true;
-    }
-
-    return false;
+    return (bHeliExists && bHeliReadyForGrab && bKillBotsFired && b1PAnimPlayed);
 }
 
 exec function SetCollectedBagsCount(int NumBagsToSet)
@@ -1663,79 +1755,27 @@ exec function SetCollectedBagsCount(int NumBagsToSet)
     }
 }
 
-function bool CheckCheckpointTimeSavingToDisk()
-{
-    local OnlineSubsystem OnlineSub;
-    local OnlineProfileSettings OnlineProf;
-    local byte ControllerId;
-
-    OnlineSub = Class'GameEngine'.static.GetOnlineSubsystem();
-    ControllerId = byte(Class'UIInteraction'.static.GetPlayerControllerId(0));
-    OnlineProf = OnlineSub.PlayerInterface.GetProfileSettings(ControllerId);
-
-    if((OnlineProf != none) && OnlineProf.AsyncState == OPAS_Write)
-    {
-        return true;
-    }
-}
-
-exec function SaveCheckpointTime()
-{
-    local array<float> IntermediateTimes;
-    local bool bSetSuccess;
-    local int ProfileIDToTest;
-    local float TimeToSet;
-
-    ProfileIDToTest = 1204; // TDPID_StretchTime_04, this isn't actually used for any stretches so we can save here
-    TimeToSet = GameData.TimeAttackClock;
-
-    if (Outer == none)
-    {
-        return;
-    }
-
-    Profile = SpeedrunController.GetProfileSettings();
-    if (Profile == none)
-    {
-        return;
-    }
-
-    IntermediateTimes.Length = 0;
-    IntermediateTimes.AddItem(TimeToSet);
-
-    bSetSuccess = Profile.SetTTStretchTime(ProfileIDToTest, TimeToSet, IntermediateTimes, 0.0, 0.0);
-
-    if (bSetSuccess)
-    {
-        if (SpeedrunController.OnlinePlayerData != none)
-        {
-            SpeedrunController.OnlinePlayerData.SaveProfileData();
-        }
-    }
-}
-
 exec function LoadSavedCheckpointTime()
 {
     local int TargetProfileID;
-    local int StretchNumber;
+    local int StretchNumber; // For GetTotalTimeOnlyForStretch
     local float RetrievedTotalTime;
     local bool bSuccess;
-
-    if (SpeedrunController == none)
-    {
-        return;
-    }
-    Profile = SpeedrunController.GetProfileSettings();
-
+    
     if (Profile == none)
     {
-        return;
+        Profile = SpeedrunController.GetProfileSettings();
+        if (Profile == none)
+        {
+            return;
+        }
     }
 
-    TargetProfileID = 1204;
+    TargetProfileID = 1204; // TDPID_StretchTime_04
 
-    // Convert the ProfileID to the 1-based "stretch" number that GetTotalTimeOnlyForStretch expects
-    if (TargetProfileID >= Profile.TDPID_StretchTime_00 && TargetProfileID <= Profile.TDPID_StretchTime_33)
+    // Convert ProfileID to 1-based "stretch" number for GetTotalTimeOnlyForStretch
+    // TDPID_StretchTime_00 = 1200. So 1204 is (1204 - 1200) + 1 = 5th stretch.
+    if (TargetProfileID >= Profile.TDPID_StretchTime_00 && TargetProfileID <= Profile.TDPID_StretchTime_33) 
     {
         StretchNumber = (TargetProfileID - Profile.TDPID_StretchTime_00) + 1;
     }
@@ -1746,7 +1786,12 @@ exec function LoadSavedCheckpointTime()
     {
         GameData.TimeAttackClock = RetrievedTotalTime;
     }
+    else
+    {
+        PlayerOwner.ClientMessage("LoadSavedCheckpointTime: Failed to load time from profile ID " $ TargetProfileID $ ". Timer not changed.", 'Warning');
+    }
 }
+
 
 // DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
 function DrawLivingHUD()
@@ -1921,9 +1966,11 @@ function bool CheckIllegalFramerateLimit()
 // Save timer values on HUD destruction
 event Destroyed()
 {
+    local string ChapterName;
+
     if (SaveLoad == none)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
 
     // If the level was completed, save the final split time too
@@ -1931,6 +1978,49 @@ event Destroyed()
     {
         LastSplitTime = GameData.TimeAttackClock;
         SaveLoad.SaveData("LastSplitTime", GetTimeString(LastSplitTime));
+        if (WorldInfo.GetMapName() == "Edge_p")
+        {
+            ChapterName = "Prologue";
+        }
+        else if (WorldInfo.GetMapName() == "Escape_p")
+        {
+            ChapterName = "Chapter 1";
+        }
+        else if (WorldInfo.GetMapName() == "Stormdrain_p")
+        {
+            ChapterName = "Chapter 2";
+        }
+        else if (WorldInfo.GetMapName() == "Cranes_p")
+        {
+            ChapterName = "Chapter 3";
+        }
+        else if (WorldInfo.GetMapName() == "Subway_p")
+        {
+            ChapterName = "Chapter 4";
+        }
+        else if (WorldInfo.GetMapName() == "Mall_p")
+        {
+            ChapterName = "Chapter 5";
+        }
+        else if (WorldInfo.GetMapName() == "Factory_p")
+        {
+            ChapterName = "Chapter 6";
+        }
+        else if (WorldInfo.GetMapName() == "Boat_p")
+        {
+            ChapterName = "Chapter 7";
+        }
+        else if (WorldInfo.GetMapName() == "Convoy_p")
+        {
+            ChapterName = "Chapter 8";
+        }
+        SpeedrunController.ClientMessage(ChapterName $ " split - " $ GetTimeString(LastSplitTime));
+
+        SaveLoad.SaveData("bNewMapSavePending", "true");
+    }
+    else
+    {
+        SaveLoad.SaveData("bNewMapSavePending", "false");
     }
 
     SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));

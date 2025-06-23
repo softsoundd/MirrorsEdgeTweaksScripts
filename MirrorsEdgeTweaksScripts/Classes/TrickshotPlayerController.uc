@@ -10,10 +10,13 @@ class TrickshotPlayerController extends TdPlayerController
     hidecategories(Navigation)
     implements(TdController);
 
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandlerTSHUD SaveLoad;
 var transient float LastKnownScore;
 
 var bool bBruteforce;
+var bool bHeavyPose;
+var bool bInstantSwitch;
+var bool bFullAuto;
 var bool bIsHoldingZoomKey;
 var bool bEnableHoldToZoom;
 
@@ -57,6 +60,7 @@ simulated event PostBeginPlay()
 
 event PlayerTick(float DeltaTime)
 {
+    local TdMove_StumbleBase StumbleMove;
     local TdWeapon_Heavy HeavyWeapon;
     local TdWeapon_Sniper_BarretM95 SniperWeapon;
     local float CurrentScore;
@@ -87,7 +91,7 @@ event PlayerTick(float DeltaTime)
         ActualAccelY = 0;
         ActualAccelZ = 0;
     }
-    super(PlayerController).PlayerTick(DeltaTime); // Original super call position
+    super(PlayerController).PlayerTick(DeltaTime);
     UpdateReactionTime(DeltaTime);
 
     if(!WorldInfo.IsPlayInEditor())
@@ -104,6 +108,20 @@ event PlayerTick(float DeltaTime)
         }
     }
 
+    StumbleMove = TdMove_StumbleBase(myPawn.Moves[35]);
+    if (StumbleMove.DisableMovementTime != 0)
+    {
+        StumbleMove.DisableMovementTime = 0;
+    }
+    if (StumbleMove.DisableLookTime != 0)
+    {
+        StumbleMove.DisableLookTime = 0;
+    }
+    if (StumbleMove.MovementGroup != MG_Free)
+    {
+        StumbleMove.MovementGroup = MG_Free;
+    }
+
     // Make sniper OP
     HeavyWeapon = TdWeapon_Heavy(myPawn.Weapon);
     if (HeavyWeapon != none && HeavyWeapon.WeaponType != EWT_Light)
@@ -116,6 +134,29 @@ event PlayerTick(float DeltaTime)
     {
         SniperWeapon.AdditionalUnzoomedSpread = 0;
     }
+
+    if (myPawn.Weapon != none)
+    {
+        if (myPawn.Mesh3p != none && myPawn.Mesh3p.AnimSets[1] != myPawn.CommonArmedHeavy3p)
+        {
+            myPawn.Mesh3p.AnimSets[1] = myPawn.CommonArmedHeavy3p;
+            myPawn.Mesh3p.UpdateAnimations();
+        }
+
+        if (bHeavyPose)
+        {
+            if (myPawn.Mesh1p != none && myPawn.Mesh1p.AnimSets[1] != myPawn.CommonArmedHeavy1p)
+            {
+                myPawn.Mesh1p.AnimSets[1] = myPawn.CommonArmedHeavy1p;
+                myPawn.Mesh1p.UpdateAnimations();
+            }
+
+            if (myPawn.WeaponAnimState == WS_Relaxed)
+            {
+                myPawn.SetWeaponAnimState(WS_Ready);
+            }
+        }
+    }
 }
 
 exec function SetWallrunFireKey(Name NewKeyName) 
@@ -126,7 +167,7 @@ exec function SetWallrunFireKey(Name NewKeyName)
         return;
     }
     WallrunFireKey = NewKeyName;
-    ClientMessage("Movement Condition Attack key set to: " $ string(WallrunFireKey));
+    ClientMessage("Wallrun fire key set to: " $ string(WallrunFireKey));
 
     SaveLoad.SaveData("WallrunFireKey", string(WallrunFireKey));
 }
@@ -147,7 +188,7 @@ exec function AttackPress()
         }
     }
 
-    if(!myPawn.HasWeapon() || (myPawn.MovementState == 1) && myPawn.Moves[19].CanDoMove())
+    if(!myPawn.HasWeapon())
     {
         myPawn.HandleMoveAction(3);
     }
@@ -171,6 +212,176 @@ exec function StartFire(optional byte FireModeNum)
     {
         super(PlayerController).StartFire(FireModeNum);
     }
+}
+
+function InstantDropWeapon()
+{
+    local TdWeapon TdW;
+
+    TdW = myPawn.MyWeapon;
+    if (TdW == none)
+    {
+        return;
+    }
+
+    if ((myPawn.WeaponAnimState == 4) || myPawn.IsTimerActive('RemoveWeaponAfterDrop'))
+    {
+        return;
+    }
+
+    myPawn.ClearTimer('DropWeapon'); 
+    if (TdW.IsZoomingOrZoomed())
+    {
+        myPawn.SetTimer(0.5, false, 'DropWeapon');
+        return;
+    }
+
+    SafeRemoveWeapon();
+}
+
+function SafeRemoveWeapon()
+{
+    local TdWeapon TdW;
+    local TdInventoryManager InvMan;
+
+    if (myPawn == none)
+    {
+        return;
+    }
+
+    TdW = myPawn.MyWeapon;
+    InvMan = TdInventoryManager(myPawn.InvManager);
+
+    if (TdW != none && InvMan != none)
+    {
+        if (!TdW.bHidden)
+        {
+            myPawn.TossWeapon(TdW);
+        }
+
+        InvMan.RemoveFromInventory(TdW);
+
+        myPawn.SetAimOffsetNodesProfile('OneHanded');
+    }
+}
+
+exec function PressedSwitchWeapon()
+{
+    local TdInventoryManager InvMan;
+    local TdMOVE_Disarm DisarmMove;
+
+    if(IsButtonInputIgnored())
+    {
+        return;
+    }
+    myPawn.OnTutorialEvent(19);
+    InvMan = TdInventoryManager(Pawn.InvManager);
+    DisarmTimeMultiplier = 1;
+
+    if(myPawn.Weapon != none)
+    {
+        UnZoom();
+
+        if (!bInstantSwitch)
+        {
+            myPawn.DropWeapon();
+            return;
+        }
+        else
+        {
+            InstantDropWeapon();
+            return;
+        }
+    }
+    else
+    {
+        // Try our custom pickup function that bypasses movement checks
+        if (ForceWeaponPickup())
+        {
+            return;
+        }
+        else if (SnatchAttempt())
+        {
+            return;
+        }
+        else if((InvMan != none) && myPawn.Moves[myPawn.MovementState].bAllowPickup)
+        {
+            // Let the game try its normal way
+            InvMan.PressedSwitchWeapon();
+            if(myPawn.Weapon == none)
+            {
+                DisarmMove = TdMOVE_Disarm(myPawn.Moves[18]);
+                DisarmMove.ForceMiss(true);
+                myPawn.HandleMoveAction(4);
+            }
+        }
+    }
+    if((myPawn.Weapon != none) && myPawn.Weapon.IsA('TdWeapon_Sniper_BarretM95'))
+    {
+        CallPopUp(1, 4);
+    }
+}
+
+function bool ForceWeaponPickup()
+{
+    local TdPickup BestPickup;
+    local TdPickup P;
+    local TdInventoryManager InvMan;
+    local TdWeapon WeaponToPickup;
+    local Inventory.EInventorySlot FreeSlot;
+    local float BestDistSq, DistSq;
+    
+    local float MaxPickupRadius;
+    MaxPickupRadius = 1000.0;
+
+    InvMan = TdInventoryManager(Pawn.InvManager);
+    if (InvMan == None)
+    {
+        return false;
+    }
+
+    BestDistSq = MaxPickupRadius * MaxPickupRadius;
+
+    foreach AllActors(class'TdPickup', P)
+    {
+        DistSq = VSizeSq(P.Location - Pawn.Location);
+
+        if (DistSq > (MaxPickupRadius * MaxPickupRadius))
+        {
+            continue;
+        }
+
+        if (P.GetAmmoCount() > 0)
+        {
+            if (DistSq < BestDistSq)
+            {
+                BestDistSq = DistSq;
+                BestPickup = P;
+            }
+        }
+    }
+
+    if (BestPickup != None)
+    {
+        if (BestPickup.Inventory == none)
+        {
+            BestPickup.Inventory = Spawn(BestPickup.InventoryClass);
+        }
+
+        WeaponToPickup = TdWeapon(BestPickup.Inventory);
+        if (WeaponToPickup != none)
+        {
+            FreeSlot = InvMan.FindFreeSlotForWeaponClass(WeaponToPickup.Class);
+            if (FreeSlot != 0)
+            {
+                BestPickup.GiveTo(Pawn);
+                InvMan.SwitchToWeaponInSlot(FreeSlot);
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 exec function SetZoomKey(Name NewKeyName)
@@ -291,18 +502,14 @@ exec function ZoomWeapon()
 function Reset()
 {
     super.Reset();
-    bIsHoldingZoomKey = false;
-}
-
-reliable client simulated function ClientRestart(Pawn NewPawn)
-{
-    super.ClientRestart(NewPawn);
+    LastKnownScore = PlayerReplicationInfo.Score;
     bIsHoldingZoomKey = false;
 }
 
 function PawnDied(Pawn inPawn)
 {
     super.PawnDied(inPawn);
+    LastKnownScore = PlayerReplicationInfo.Score;
     if (bIsHoldingZoomKey)
     {
         self.UnZoom();
@@ -383,6 +590,59 @@ exec function Bruteforce()
 {
     bBruteforce = !bBruteforce;
     ClientMessage("Trickshot bruteforce mode set to " $ bBruteforce);
+}
+
+exec function HeavyPose()
+{
+    bHeavyPose = !bHeavyPose;
+    ClientMessage("Heavy weapon pose mode set to " $ bHeavyPose);
+}
+
+exec function InstantSwitch()
+{
+    bInstantSwitch = !bInstantSwitch;
+
+    if (bInstantSwitch)
+    {
+        ConsoleCommand("set TdWeapon_Sniper_BarretM95 EquipTime 0");
+    }
+    else
+    {
+        ConsoleCommand("set TdWeapon_Sniper_BarretM95 EquipTime 0.75");
+    }
+    ClientMessage("Instant weapon equip/drop set to " $ bInstantSwitch);
+}
+
+exec function M95FireRate(float FireRate)
+{
+    ConsoleCommand("set TdWeapon_Sniper_BarretM95 FireInterval (" $ FireRate $ ")");
+    ClientMessage("M95 fire rate set to " $ FireRate $ " seconds");
+}
+
+exec function FullAuto()
+{
+    bFullAuto = !bFullAuto;
+
+    ConsoleCommand("set TdWeapon bAutomaticRefire (" $ bFullAuto $ ")");
+    ClientMessage("Full auto mode for all weapons set to " $ bFullAuto);
+}
+
+reliable client simulated function ClientRestart(Pawn NewPawn)
+{
+    super(PlayerController).ClientRestart(NewPawn);
+    bReactionTime = false;
+    ReactionTimeEnergy = ReactionTimeSpawnLevel;
+    bOverrideReactionTimeSettings = false;
+    AddStatsEvent(7);
+    WorldInfo.Game.SetGameSpeed(1);
+    if(myHUD != none)
+    {
+        TdHUD(myHUD).PlayerOwnerRestart();
+    }
+    SetAudioProfileSettings();
+    SetPause(false);
+    SetSoundMode(0,, true, 1.5);
+    LastKnownScore = PlayerReplicationInfo.Score;
 }
 
 // Stop any other state that might make us unzoom the sniper, shorten wallkick targetting distance, make collats work

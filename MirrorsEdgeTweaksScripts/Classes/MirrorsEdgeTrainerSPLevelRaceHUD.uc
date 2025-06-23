@@ -3,7 +3,7 @@ class MirrorsEdgeTrainerSPLevelRaceHUD extends TdSPLevelRaceHUD
     config(Game)
     hidecategories(Navigation);
 
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandlerTHUD SaveLoad;
 
 // Track location and velocity
 var vector CurrentLocation;
@@ -121,7 +121,7 @@ function DrawLivingHUD()
 
     if (SaveLoad == None)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerTHUD';
     }
 
     LoadedHUDItems = SaveLoad.LoadData("ShowTrainerHUDItems");

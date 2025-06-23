@@ -11,7 +11,7 @@
 class MirrorsEdgeMacro extends TdCheatManager;
 
 var CheatHelperProxy HelperProxy;
-var SaveLoadHandler SaveLoad; // Instance of our SaveLoadHandler
+var SaveLoadHandlerMEM SaveLoad; // Instance of our SaveLoadHandlerMEM
 var bool bJumpMacroActive;
 var bool bInteractMacroActive;
 var bool bGrabMacroActive;
@@ -36,7 +36,7 @@ function EnsureHelperProxy()
 
     if (SaveLoad == None)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerMEM';
     }
 
     // Load the saved macro mode

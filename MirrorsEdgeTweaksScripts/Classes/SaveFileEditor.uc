@@ -822,7 +822,6 @@ exec function ViewProfileID(int PropertyID)
     local string DisplayKeyForLog;
     local bool bPropertyExistsInSettingsArray;
 
-
     local float StretchTotalTime, StretchAverageSpeed, StretchDistanceRun;
     local array<float> StretchIntermediateTimes;
     local int StretchNumber;

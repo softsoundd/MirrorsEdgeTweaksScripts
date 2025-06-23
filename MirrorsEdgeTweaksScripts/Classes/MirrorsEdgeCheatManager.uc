@@ -1,17 +1,18 @@
 class MirrorsEdgeCheatManager extends TdCheatManager;
 
 var CheatHelperProxy HelperProxy;
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandlerMECM SaveLoad;
 var vector SavedLocation;
 var rotator SavedRotation;
 var vector SavedVelocity;
 var vector SavedLastJumpLocation;
 var TdPawn.EMovement SavedMoveState;
-var TdMove NoclipMove;
 var float SavedHealth;
 var bool SavedReactionTimeState;
 var float SavedReactionTimeEnergy;
 var vector TimerLocation;
+var bool bFreeze;
+var float CustomTimeDilation;
 var bool bInfiniteAmmoEnabled;
 var bool bBotOHKOEnabled;
 var bool bHoldFireEnabled;
@@ -44,6 +45,9 @@ var float DollyStartFOV;
 var float CurrentFOV;
 var float GlobalDollyDuration;
 var float GlobalElapsedTime;
+var transient float m_fDollyLastRealTime;
+var transient bool m_bDollyRealTimeInitialized;
+var transient bool bLinearDollyEasing; // True if dolly should use linear start/end easing
 
 struct DollyKeyframe
 {
@@ -276,6 +280,85 @@ exec function HarmlessBots()
 exec function FreezeWorld()
 {
 	WorldInfo.bPlayersOnly = !WorldInfo.bPlayersOnly;
+}
+
+exec function FreezePlayer()
+{
+    local TdPlayerPawn Pawn;
+    
+    bFreeze = !bFreeze;
+
+    if (bFreeze)
+    {
+        foreach AllActors(Class'TdPlayerPawn', Pawn)
+        {
+            Pawn.CustomTimeDilation = 0;
+        }
+    }
+    else
+    {
+        foreach AllActors(Class'TdPlayerPawn', Pawn)
+        {
+            Pawn.CustomTimeDilation = 1;
+        }
+    }
+}
+
+exec function FreezeBots()
+{
+    local TdBotPawn Bot;
+    local TdVehicle_Helicopter Heli;
+    local SkeletalMeshComponent SkelMesh;
+
+    bFreeze = !bFreeze; 
+
+    if (bFreeze)
+    {
+        foreach AllActors(Class'TdBotPawn', Bot)
+        {
+            SkelMesh = Bot.Mesh;
+
+            if (SkelMesh != none && SkelMesh.PhysicsAssetInstance != none && SkelMesh.PhysicsWeight > 0.0f)
+            {
+                Bot.CustomTimeDilation = 0;
+
+                SkelMesh.bUpdateKinematicBonesFromAnimation = false; 
+                
+                SkelMesh.PhysicsAssetInstance.SetAllBodiesFixed(true);
+
+                SkelMesh.PutRigidBodyToSleep();
+            }
+
+            Bot.CustomTimeDilation = 0;
+        }
+        foreach AllActors(Class'TdVehicle_Helicopter', Heli)
+        {
+            Heli.CustomTimeDilation = 0;
+        }
+    }
+    else
+    {
+        foreach AllActors(Class'TdBotPawn', Bot)
+        {
+            SkelMesh = Bot.Mesh;
+            if (SkelMesh != none && SkelMesh.PhysicsAssetInstance != none) 
+            {
+                if (SkelMesh.PhysicsWeight > 0.0f)
+                {
+                    SkelMesh.bUpdateKinematicBonesFromAnimation = true; 
+
+                    SkelMesh.PhysicsAssetInstance.SetAllBodiesFixed(false);
+                    
+                    SkelMesh.WakeRigidBody();
+                }
+            }
+            Bot.CustomTimeDilation = 1;
+        }
+        foreach AllActors(Class'TdVehicle_Helicopter', Heli)
+        {
+            Heli.CustomTimeDilation = 1;
+        }
+    }
 }
 
 // Sets maximum ammo on all weapons. Todo: see if we can set these variables directly rather than relying on the "set" command
@@ -665,19 +748,19 @@ exec function SaveLocation()
 
     if (SaveLoad == None)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerMECM';
     }
 
-    SaveLoad.SaveData("SavedLocation", class'SaveLoadHandler'.static.SerialiseVector(SavedLocation));
-    SaveLoad.SaveData("SavedVelocity", class'SaveLoadHandler'.static.SerialiseVector(SavedVelocity));
-    SaveLoad.SaveData("SavedRotation", class'SaveLoadHandler'.static.SerialiseRotator(SavedRotation));
+    SaveLoad.SaveData("SavedLocation", class'SaveLoadHandlerMECM'.static.SerialiseVector(SavedLocation));
+    SaveLoad.SaveData("SavedVelocity", class'SaveLoadHandlerMECM'.static.SerialiseVector(SavedVelocity));
+    SaveLoad.SaveData("SavedRotation", class'SaveLoadHandlerMECM'.static.SerialiseRotator(SavedRotation));
     SaveLoad.SaveData("SavedHealth", string(SavedHealth));
     SaveLoad.SaveData("SavedReactionTimeEnergy", string(SavedReactionTimeEnergy));
     SaveLoad.SaveData("SavedReactionTimeState", string(SavedReactionTimeState));
 
     if (PlayerPawnRef != None)
     {
-        SaveLoad.SaveData("SavedLastJumpLocation", class'SaveLoadHandler'.static.SerialiseVector(SavedLastJumpLocation));
+        SaveLoad.SaveData("SavedLastJumpLocation", class'SaveLoadHandlerMECM'.static.SerialiseVector(SavedLastJumpLocation));
         SaveLoad.SaveData("SavedMoveState", EnumToString(PlayerPawnRef.MovementState));
     }
 
@@ -689,8 +772,8 @@ exec function SaveLocation()
         BotEntry = ActiveSpawnedBotsData[i];
         SaveLoad.SaveData("SavedBot_" $ i $ "_PawnClass", BotEntry.PawnClassName);
         SaveLoad.SaveData("SavedBot_" $ i $ "_AITemplate", BotEntry.AITemplatePath);
-        SaveLoad.SaveData("SavedBot_" $ i $ "_Location", class'SaveLoadHandler'.static.SerialiseVector(BotEntry.Location));
-        SaveLoad.SaveData("SavedBot_" $ i $ "_Rotation", class'SaveLoadHandler'.static.SerialiseRotator(BotEntry.Rotation));
+        SaveLoad.SaveData("SavedBot_" $ i $ "_Location", class'SaveLoadHandlerMECM'.static.SerialiseVector(BotEntry.Location));
+        SaveLoad.SaveData("SavedBot_" $ i $ "_Rotation", class'SaveLoadHandlerMECM'.static.SerialiseRotator(BotEntry.Rotation));
         SaveLoad.SaveData("SavedBot_" $ i $ "_bWasGivenAI", string(BotEntry.bWasGivenAI));
         SaveLoad.SaveData("SavedBot_" $ i $ "_CustomMeshID", BotEntry.CustomSkeletalMeshIdentifier);
 
@@ -700,7 +783,7 @@ exec function SaveLocation()
     ConsoleCommand("DisplayTrainerHUDMessage Player state saved");
 }
 
-// Converts the movement enums into a string representation for the SaveLoadHandler class
+// Converts the movement enums into a string representation for the SaveLoadHandlerMECM class
 static function string EnumToString(EMovement MoveState)
 {
     switch (MoveState)
@@ -766,17 +849,17 @@ exec function TpToSavedLocation()
 
     if (SaveLoad == None)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerMECM';
     }
 
     LoadedStringData = SaveLoad.LoadData("SavedLocation");
-    if (LoadedStringData != "") SavedLocation = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData); else SavedLocation = vect(0,0,0);
+    if (LoadedStringData != "") SavedLocation = class'SaveLoadHandlerMECM'.static.DeserialiseVector(LoadedStringData); else SavedLocation = vect(0,0,0);
 
     LoadedStringData = SaveLoad.LoadData("SavedVelocity");
-    if (LoadedStringData != "") SavedVelocity = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData); else SavedVelocity = vect(0,0,0);
+    if (LoadedStringData != "") SavedVelocity = class'SaveLoadHandlerMECM'.static.DeserialiseVector(LoadedStringData); else SavedVelocity = vect(0,0,0);
 
     LoadedStringData = SaveLoad.LoadData("SavedRotation");
-    if (LoadedStringData != "") SavedRotation = class'SaveLoadHandler'.static.DeserialiseRotator(LoadedStringData); else SavedRotation = rot(0,0,0);
+    if (LoadedStringData != "") SavedRotation = class'SaveLoadHandlerMECM'.static.DeserialiseRotator(LoadedStringData); else SavedRotation = rot(0,0,0);
 
     LoadedStringData = SaveLoad.LoadData("SavedHealth");
     if (LoadedStringData != "") SavedHealth = float(LoadedStringData); else SavedHealth = 100;
@@ -788,13 +871,13 @@ exec function TpToSavedLocation()
     if (LoadedStringData != "") SavedReactionTimeState = (Locs(LoadedStringData) == "true"); else SavedReactionTimeState = false;
 
     LoadedStringData = SaveLoad.LoadData("SavedLastJumpLocation");
-    if (LoadedStringData != "") SavedLastJumpLocation = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData);
+    if (LoadedStringData != "") SavedLastJumpLocation = class'SaveLoadHandlerMECM'.static.DeserialiseVector(LoadedStringData);
 
     LoadedStringData = SaveLoad.LoadData("SavedMoveState");
     if (LoadedStringData != "") SavedMoveState = StringToEMovement(LoadedStringData); else SavedMoveState = MOVE_Walking;
 
     LoadedStringData = SaveLoad.LoadData("TimerLocation");
-    if (LoadedStringData != "") TimerLocation = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData);
+    if (LoadedStringData != "") TimerLocation = class'SaveLoadHandlerMECM'.static.DeserialiseVector(LoadedStringData);
 
 
     if (Pawn == None)
@@ -848,10 +931,10 @@ exec function TpToSavedLocation()
             BotDataToLoad.AITemplatePath = SaveLoad.LoadData("SavedBot_" $ i $ "_AITemplate");
 
             LoadedStringData = SaveLoad.LoadData("SavedBot_" $ i $ "_Location");
-            if (LoadedStringData != "") BotDataToLoad.Location = class'SaveLoadHandler'.static.DeserialiseVector(LoadedStringData); else continue;
+            if (LoadedStringData != "") BotDataToLoad.Location = class'SaveLoadHandlerMECM'.static.DeserialiseVector(LoadedStringData); else continue;
 
             LoadedStringData = SaveLoad.LoadData("SavedBot_" $ i $ "_Rotation");
-            if (LoadedStringData != "") BotDataToLoad.Rotation = class'SaveLoadHandler'.static.DeserialiseRotator(LoadedStringData); else continue;
+            if (LoadedStringData != "") BotDataToLoad.Rotation = class'SaveLoadHandlerMECM'.static.DeserialiseRotator(LoadedStringData); else continue;
 
             LoadedStringData = SaveLoad.LoadData("SavedBot_" $ i $ "_bWasGivenAI");
             if (LoadedStringData != "") BotDataToLoad.bWasGivenAI = (Locs(LoadedStringData) == "true"); else BotDataToLoad.bWasGivenAI = false;
@@ -1009,9 +1092,9 @@ exec function SaveTimerLocation()
 
     if (SaveLoad == None)
     {
-        SaveLoad = new class'SaveLoadHandler';
+        SaveLoad = new class'SaveLoadHandlerMECM';
     }
-    SaveLoad.SaveData("TimerLocation", class'SaveLoadHandler'.static.SerialiseVector(TimerLocation));
+    SaveLoad.SaveData("TimerLocation", class'SaveLoadHandlerMECM'.static.SerialiseVector(TimerLocation));
 
     // Use ConsoleCommand to pass the target location to the HUD
     ConsoleCommand("SetHUDTimerLocation " $ TimerLocation.X $ " " $ TimerLocation.Y $ " " $ TimerLocation.Z);
@@ -1525,8 +1608,8 @@ exec function MacroInteract()
 
 exec function MacroGrab()
 {
-    Outer.PressedSwitchWeapon();
-    Outer.ReleasedSwitchWeapon();
+    ConsoleCommand("PressedSwitchWeapon");
+    ConsoleCommand("ReleasedSwitchWeapon");
 }
 
 // This function sets the screen resolution, adjusts UI scaling, and verifies that the chosen resolution is valid
@@ -1817,7 +1900,7 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         }
         else if (PropertyName == "timestep")
         {
-            if (Value <= 0)
+            if (Value < 0)
             {
                 ClientMessage("Error: Hz value must be greater than zero.");
                 return;
@@ -1845,7 +1928,7 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         }
         else if (PropertyName == "timestep")
         {
-            if (Value <= 0)
+            if (Value < 0)
             {
                 ClientMessage("Error: Hz value must be greater than zero.");
                 return;
@@ -1873,7 +1956,7 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         }
         else if (PropertyName == "timestep")
         {
-            if (Value <= 0)
+            if (Value < 0)
             {
                 ClientMessage("Error: Hz value must be greater than zero.");
                 return;
@@ -1901,7 +1984,7 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         }
         else if (PropertyName == "timestep")
         {
-            if (Value <= 0)
+            if (Value < 0)
             {
                 ClientMessage("Error: Hz value must be greater than zero.");
                 return;
@@ -1929,7 +2012,7 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         }
         else if (PropertyName == "timestep")
         {
-            if (Value <= 0)
+            if (Value < 0)
             {
                 ClientMessage("Error: Hz value must be greater than zero.");
                 return;
@@ -2069,19 +2152,34 @@ function Dolly(float DeltaTime)
     local TdPlayerCamera PlayerCam;
     local float rP0, rP1, rP2, rP3, newPitch, newYaw, newRoll;
     local float fP0, fP1, fP2, fP3, newFOV;
+    local float currentRealWorldTime, realFrameDeltaSeconds;
 
     if (!bIsDollyActive)
         return;
 
     PlayerPawn = TdPawn(Pawn);
-    if (PlayerPawn == none)
-        return;
+    if (PlayerPawn == none) return;
 
     PlayerCam = TdPlayerCamera(PlayerCamera);
-    if (PlayerCam == none)
-        return;
+    if (PlayerCam == none) return;
 
-    GlobalElapsedTime += DeltaTime;
+    currentRealWorldTime = PlayerPawn.WorldInfo.RealTimeSeconds;
+    if (!m_bDollyRealTimeInitialized)
+    {
+        realFrameDeltaSeconds = 0.0;
+        m_fDollyLastRealTime = currentRealWorldTime;
+        m_bDollyRealTimeInitialized = true;
+    }
+    else
+    {
+        realFrameDeltaSeconds = currentRealWorldTime - m_fDollyLastRealTime;
+        m_fDollyLastRealTime = currentRealWorldTime;
+    }
+
+    if (realFrameDeltaSeconds < 0.0) realFrameDeltaSeconds = 0.0;
+    if (realFrameDeltaSeconds > 0.2) realFrameDeltaSeconds = 0.2;
+
+    GlobalElapsedTime += realFrameDeltaSeconds;
 
     if (GlobalElapsedTime >= GlobalDollyDuration)
     {
@@ -2093,26 +2191,61 @@ function Dolly(float DeltaTime)
         ConsoleCommand("toggleui");
         ClientMessage("Dolly playback complete.");
         UpdateDollyDebug();
+        m_bDollyRealTimeInitialized = false;
         return;
     }
 
-    norm = GlobalElapsedTime / GlobalDollyDuration;
-    remapped = SmootherStep(norm);
-    globalEffectiveTime = remapped * GlobalDollyDuration;
+    if (GlobalDollyDuration > 0.0)
+    {
+        norm = GlobalElapsedTime / GlobalDollyDuration;
+    }
+    else
+    {
+        norm = 0.0;
+    }
+
+    if (bLinearDollyEasing)
+    {
+        globalEffectiveTime = GlobalElapsedTime;
+    }
+    else
+    {
+        remapped = SmootherStep(norm);
+        globalEffectiveTime = remapped * GlobalDollyDuration;
+    }
 
     cumulative = 0;
     segIndex = 0;
     for (i = 0; i < Keyframes.Length; i++)
     {
-        if (globalEffectiveTime < cumulative + Keyframes[i].Duration)
+        // Check if this keyframe has 0 duration; if so, it might be skipped quickly
+        // unless globalEffectiveTime is also 0.
+        if (globalEffectiveTime < cumulative + Keyframes[i].Duration || Keyframes[i].Duration == 0 && globalEffectiveTime == cumulative)
         {
             segIndex = i;
             break;
         }
         cumulative += Keyframes[i].Duration;
     }
+    
+    if (i == Keyframes.Length)
+    {
+        segIndex = Max(0, Keyframes.Length - 1);
+    }
 
-    local_t = (globalEffectiveTime - cumulative) / Keyframes[segIndex].Duration;
+    if (Keyframes[segIndex].Duration > 0.0)
+    {
+        local_t = (globalEffectiveTime - cumulative) / Keyframes[segIndex].Duration;
+    }
+    else
+    {
+        local_t = 0.0;
+        if (globalEffectiveTime > cumulative) // If we are "past" the start of a zero-duration segment
+        {
+            local_t = 1.0;
+        }
+    }
+    local_t = FClamp(local_t, 0.0, 1.0); // Ensure local_t is always valid for B-Spline
 
     // Position interpolation
     P0 = (segIndex == 0) ? DollyStartPos : Keyframes[Max(segIndex - 1, 0)].Position;
@@ -2283,6 +2416,7 @@ exec function DollyStart()
 
     SetCameraMode('FreeFlight');
     ConsoleCommand("set DOFAndBloomEffect bShowInGame true"); // Freeflight mode disables these effects by default
+
     PlayerCam.FreeFlightPosition = Pawn.Location;
     PlayerCam.FreeFlightRotation = Pawn.Rotation;
     PlayerPawn.SetIgnoreMoveInput();
@@ -2290,6 +2424,7 @@ exec function DollyStart()
     PlayerPawn.bAllowMoveChange = false;
     PlayerPawn.SetFirstPerson(false);
     PlayerPawn.Mesh.ForceSkelUpdate();
+    ConsoleCommand("set SkeletalMeshComponent DepthPriorityGroup SDPG_World");
 
     bMonitorDolly = true;
 
@@ -2557,7 +2692,7 @@ function UpdateDollyDebug()
     }
 }
 
-exec function DollyPlay()
+exec function DollyPlay(optional string EaseMode) // Added optional EaseMode
 {
     local TdPawn PlayerPawn;
     local TdPlayerCamera PlayerCam;
@@ -2578,10 +2713,22 @@ exec function DollyPlay()
         return;
     }
 
-    if (Keyframes.Length == 0)
+    if (Keyframes.Length == 0) // Or perhaps Keyframes.Length <= 1 if a dummy always exists and you need at least one real keyframe
     {
-        ClientMessage("No keyframes recorded.");
+        ClientMessage("No keyframes recorded (or not enough for playback).");
         return;
+    }
+
+    // Set easing mode
+    if (Caps(EaseMode) == "LINEAR")
+    {
+        bLinearDollyEasing = true;
+        ClientMessage("Dolly playback easing: Linear Start/End");
+    }
+    else
+    {
+        bLinearDollyEasing = false; // Default to SmootherStep
+        ClientMessage("Dolly playback easing: SmootherStep (Ease In/Out)");
     }
 
     DollyStartPos = PlayerCam.FreeFlightPosition;
@@ -2589,11 +2736,30 @@ exec function DollyPlay()
     DollyStartFOV = PlayerCam.DefaultFOV;
 
     // Compute the global duration: sum the durations of all keyframes.
+    GlobalDollyDuration = 0; // Ensure it's reset before summing
     for (i = 0; i < Keyframes.Length; i++)
     {
         GlobalDollyDuration += Keyframes[i].Duration;
     }
+
+    // Check if GlobalDollyDuration is valid
+    if (GlobalDollyDuration <= 0.0 && Keyframes.Length > 0) // Only an issue if all keyframes (including dummy) have 0 duration
+    {
+        // This case might occur if only the dummy keyframe (duration 0) exists,
+        // or if all user-added keyframes also had 0 duration (which DollyAdd prevents).
+        // If GlobalDollyDuration is 0, playback isn't meaningful.
+        ClientMessage("Dolly total duration is zero. Cannot play.");
+        // Potentially handle by snapping to the last frame or just returning.
+        // For now, let's prevent division by zero later by returning.
+        bIsDollyActive = false;
+        bIsPlayingDolly = false;
+        m_bDollyRealTimeInitialized = false;
+        return;
+    }
+
+
     GlobalElapsedTime = 0.0;
+    m_bDollyRealTimeInitialized = false;
 
     bIsDollyActive = true;
     bIsPlayingDolly = true;

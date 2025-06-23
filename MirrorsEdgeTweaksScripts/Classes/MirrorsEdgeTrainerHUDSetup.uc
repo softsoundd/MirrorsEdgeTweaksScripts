@@ -10,7 +10,7 @@ class MirrorsEdgeTrainerHUDSetup extends TdPlayerController
     hidecategories(Navigation)
     implements(TdController);
 
-var SaveLoadHandler SaveLoad;
+var SaveLoadHandlerTHUD SaveLoad;
 var UIDataStore_TdGameData GameData;
 
 simulated event PostBeginPlay()
