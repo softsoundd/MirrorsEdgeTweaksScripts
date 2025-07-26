@@ -11,6 +11,7 @@ var MirrorsEdgeCheatManager CheatManagerReference;
 var MirrorsEdgeMacro MacroReference;
 var SaveFileEditor SaveFileEditorReference;
 var TdPawn Pawn;
+var TdPlayerController TdPC;
 var bool bEnableTick;
 var string PendingCommand;
 
@@ -18,6 +19,7 @@ var string PendingCommand;
 event PostBeginPlay()
 {
     super.PostBeginPlay();
+    TdPC.ClientMessage("hell yeah");
     bEnableTick = true;
 }
 

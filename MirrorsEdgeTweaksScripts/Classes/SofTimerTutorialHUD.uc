@@ -12,6 +12,7 @@ var(HUDIcons) Vector2D     SpeedPos;
 var transient string       SpeedUnitString;
 var transient int          MeasurementUnits;
 var bool                   bTimerVisible;
+var bool                   bSimpleTimer;
 
 var bool              bLoadedTimeFromSave;
 var int               SkipTicks;
@@ -57,8 +58,14 @@ event PostBeginPlay()
     DataStoreManager = Class'UIInteraction'.static.GetDataStoreClient();
     GameData = UIDataStore_TdGameData(DataStoreManager.FindDataStore('TdGameData'));
 
+    if (SaveLoad == none)
+    {
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
+    }
+
     // Speedrun HUD elements
     bTimerVisible = (SaveLoad.LoadData("TimerHUDVisible") == "") ? true : bool(SaveLoad.LoadData("TimerHUDVisible"));
+    bSimpleTimer = (SaveLoad.LoadData("SimpleTimerHUD") == "") ? false : bool(SaveLoad.LoadData("SimpleTimerHUD"));
     ShowSpeed = (SaveLoad.LoadData("ShowSpeed") == "") ? false : bool(SaveLoad.LoadData("ShowSpeed"));
     ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
     ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
@@ -72,11 +79,6 @@ event PostBeginPlay()
     else
     {
         SkipTicks = 0;
-    }
-
-    if (SaveLoad == none)
-    {
-        SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
 
     CacheMeasurementUnitInfo();
@@ -161,66 +163,81 @@ event Destroyed()
 {
     if (SaveLoad == none)
     {
-         SaveLoad = new class'SaveLoadHandlerSTHUD';
+        SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
     SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
     
     super.Destroyed();
 }
 
-// DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
+event PostRender()
+{
+    super.PostRender();
+
+    DrawSpeedrunTimer();
+}
+
 function DrawLivingHUD()
 {
-    local TdSPTutorialGame Game;
     local float PosY;
     local bool bCheatsActive;
     local bool bIllegalFramerate;
 
     super(TdTutorialHUD).DrawLivingHUD();
 
-    Game = TdSPTutorialGame(WorldInfo.Game);
-
-    if (Game != none)
+    DrawSpeedrunTimer();
+    
+    if (ShowSpeed)
     {
-        if (bTimerVisible)
+        DrawSpeed(PosY);
+    }
+
+    DrawTrainerItems();
+
+    bCheatsActive = CheckCheatsTrainerMode();
+    bIllegalFramerate = CheckIllegalFramerateLimit();
+
+    if (bCheatsActive || bIllegalFramerate)
+    {
+        DrawWarningMessages(bCheatsActive, bIllegalFramerate);
+    }
+}
+
+function DrawPausedHUD()
+{
+    super.DrawPausedHUD();
+    
+    DrawSpeedrunTimer();
+}
+
+// DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
+function DrawSpeedrunTimer()
+{
+    if (bTimerVisible)
+    {
+        if (ShouldIncrementTimer())
         {
-            if (ShouldIncrementTimer())
+            DrawLoadRemovedTimer(true);  
+        }         
+        else
+        {
+            // Briefly alternate display if paused
+            if ((WorldInfo.RealTimeSeconds - float(int(WorldInfo.RealTimeSeconds))) < 0.5)
             {
-                DrawLoadRemovedTimer(Game, true); 
-            }           
+                DrawLoadRemovedTimer(true); 
+            }
             else
             {
-                // Briefly alternate display if paused
-                if ((WorldInfo.RealTimeSeconds - float(int(WorldInfo.RealTimeSeconds))) < 0.5)
-                {
-                    DrawLoadRemovedTimer(Game, true); 
-                }
-                else
-                {
-                    DrawLoadRemovedTimer(Game, false);
-                }
+                DrawLoadRemovedTimer(false);
             }
-        }
-        
-        if (ShowSpeed)
-        {
-            DrawSpeed(PosY);
-        }
-
-        DrawTrainerItems();
-
-        bCheatsActive = CheckCheatsTrainerMode();
-        bIllegalFramerate = CheckIllegalFramerateLimit();
-
-        if (bCheatsActive || bIllegalFramerate)
-        {
-            DrawViolationMessages(bCheatsActive, bIllegalFramerate);
         }
     }
 }
 
-function DrawLoadRemovedTimer(TdSPTutorialGame Game, bool bBothTimes)
+function DrawLoadRemovedTimer(bool bBothTimes)
 {
+    local TdGameUISceneClient SceneClient;
+    local UIScene ActiveScene;
     local string TimeString;
     local float RTime;
     local Vector2D pos;
@@ -234,13 +251,96 @@ function DrawLoadRemovedTimer(TdSPTutorialGame Game, bool bBothTimes)
     if(bBothTimes)
     {
         RTime = GameData.TimeAttackClock;
-        TimeString = "LRT - " $ GetTimeString(RTime);
+
+        SceneClient = TdGameUISceneClient(Class'UIRoot'.static.GetSceneClient());
+        ActiveScene = SceneClient.GetActiveScene();
+
+        if (ActiveScene != None && ActiveScene.SceneTag == 'TdGameObjectives')
+        {
+            TimerPos.Y = 125;
+        }
+        else if (WorldInfo.GetMapName() == "TdMainMenu")
+        {
+            TimerPos.Y = 105;
+        }
+        else
+        {
+            TimerPos.Y = 55;
+        }
+
+        if (bSimpleTimer)
+        {
+            TimerPos.X = 1056;
+            TimeString = FormatSpeedrunTime(RTime);
+        }
+        else
+        {
+            TimerPos.X = 1000;
+            TimeString = "LRT - " $ FormatSpeedrunTime(RTime);
+        }
         Canvas.Font = MediumFont;
         DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
         DSOffset = FMax(1, DSOffset);
         ComputeHUDPosition(TimerPos.X, TimerPos.Y, 0, 0, pos);
         DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, TimeString, WhiteColor);
     }
+}
+
+function string FormatSpeedrunTime(float TotalTime)
+{
+    local int Minutes, Seconds, Centiseconds;
+    local string MinutesStr, SecondsStr, CentisecondsStr;
+
+    if (TotalTime < 0.0)
+    {
+        TotalTime = 0.0;
+    }
+
+    // Calculate minutes, seconds, and centiseconds by truncating via int cast
+    Minutes = int(TotalTime / 60);
+    Seconds = int(TotalTime) % 60;
+    Centiseconds = int((TotalTime - int(TotalTime)) * 100);
+
+    if (Minutes < 10)
+    {
+        MinutesStr = "0" $ Minutes;
+    }
+    else
+    {
+        MinutesStr = string(Minutes);
+    }
+
+    if (Seconds < 10)
+    {
+        SecondsStr = "0" $ Seconds;
+    }
+    else
+    {
+        SecondsStr = string(Seconds);
+    }
+
+    if (Centiseconds < 10)
+    {
+        CentisecondsStr = "0" $ Centiseconds;
+    }
+    else
+    {
+        CentisecondsStr = string(Centiseconds);
+    }
+
+    return MinutesStr $ ":" $ SecondsStr $ ":" $ CentisecondsStr;
+}
+
+function DrawTextWithOutLine(float XPos, float YPos, float OffsetX, float OffsetY, string TextToDraw, Color TextColor)
+{
+    Canvas.SetPos(XPos + OffsetX, YPos + OffsetY);
+    Canvas.DrawColor = FontDSColor;
+    //Canvas.DrawColor.A *= Square(FadeAmount);
+    Canvas.DrawText(TextToDraw);
+    Canvas.SetPos(XPos, YPos);
+    Canvas.DrawColor = TextColor;
+    //Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+    Canvas.DrawText(TextToDraw);
 }
 
 function DrawSpeed(out float PosY)
@@ -269,8 +369,25 @@ function DrawSpeed(out float PosY)
     DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
     DSOffset = FMax(1, DSOffset);
     SpeedString = GetFormattedTime(int(Speed + 0.5));
-    DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, SpeedString, WhiteColor);
-    DrawTextWithOutLine(pos.X + (float(42) * ResolutionScaleX), pos.Y, DSOffset, DSOffset, SpeedUnitString, WhiteColor);  
+    super(TdHUD).DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, SpeedString, WhiteColor);
+    super(TdHUD).DrawTextWithOutLine(pos.X + (float(42) * ResolutionScaleX), pos.Y, DSOffset, DSOffset, SpeedUnitString, WhiteColor);  
+}
+
+exec function ToggleTimer()
+{
+    bTimerVisible = !bTimerVisible;
+    SaveLoad.SaveData("TimerHUDVisible", bTimerVisible ? "true" : "false");
+    SpeedrunController.ClientMessage("LRT timer visibility set to: " $ bTimerVisible);
+}
+
+exec function ToggleSimpleTimer()
+{
+    bTimerVisible = true;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+
+    bSimpleTimer = !bSimpleTimer;
+    SaveLoad.SaveData("SimpleTimerHUD", bSimpleTimer ? "true" : "false");
+    SpeedrunController.ClientMessage("Simple timer set to: " $ bSimpleTimer);
 }
 
 function CacheMeasurementUnitInfo()
@@ -288,7 +405,7 @@ function CacheMeasurementUnitInfo()
     } 
 }
 
-function DrawViolationMessages(bool bCheatsActive, bool bIllegalFramerate)
+function DrawWarningMessages(bool bCheatsActive, bool bIllegalFramerate)
 {
     local float Y, ShadowOffset;
     local string Message;
@@ -342,10 +459,12 @@ function bool CheckCheatsTrainerMode()
 function bool CheckIllegalFramerateLimit()
 {
     local float FrameRateLimit;
+    local bool FrameRateLimiter;
 
     FrameRateLimit = class'GameEngine'.default.MaxSmoothedFrameRate;
+    FrameRateLimiter = class'GameEngine'.default.bSmoothFrameRate;
 
-    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0)
+    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0 || !FrameRateLimiter)
     {
         return true;
     }

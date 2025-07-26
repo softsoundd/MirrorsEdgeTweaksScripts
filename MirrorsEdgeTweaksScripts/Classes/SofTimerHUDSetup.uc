@@ -13,6 +13,7 @@ var SaveLoadHandlerSTHUD STSaveLoad;
 var TdProfileSettings   Profile;
 var UIDataStore_TdGameData GameData;
 var bool bDifficultySceneOpen;
+var bool bHasCheckedSpeedrunSettings;
 
 // True glitchless vars
 var bool bTrueGlitchless;
@@ -51,8 +52,6 @@ simulated event PostBeginPlay()
     }
     
     SetTimer(0.001, false, 'SetupSofTimerHUD'); // fallback in case we didn't access a game mode through the menu buttons
-
-    SetTimer(1, false, 'CustomTimeTrialOrder');
 
     SetTimer(0.01, false, 'RelayBinds');
 
@@ -121,6 +120,15 @@ function CheckIntendedGameMode()
 
     if (CurrentGame != None && WorldInfo.Game.IsA('TdMenuGameInfo'))
     {
+        bHasCheckedSpeedrunSettings = (SaveLoad.LoadData("bHasCheckedSpeedrunSettings") == "") ? false : bool(SaveLoad.LoadData("bHasCheckedSpeedrunSettings"));
+
+        if (!bHasCheckedSpeedrunSettings)
+        {
+            ConsoleCommand("exec TweaksScriptsSettings");
+            bHasCheckedSpeedrunSettings = true;
+            SaveLoad.SaveData("bHasCheckedSpeedrunSettings", string(bHasCheckedSpeedrunSettings));
+        }
+
         CurrentSeq = WorldInfo.GetGameSequence();
         if (CurrentSeq != None)
         {
@@ -155,6 +163,7 @@ function CheckIntendedGameMode()
                         else if (RemoteEvent.EventName == 'TimeTrialOnlineButton_Clicked')
                         {
                             ConsoleCommand("set TdGameInfo HUDType MirrorsEdgeTweaksScripts.SofTimerTimeTrialHUD");
+                            ConsoleCommand("exec TimeTrialOrder");
                         }
                     }
                 }
@@ -174,6 +183,15 @@ function SetupSofTimerHUD()
     if (SaveLoad == none)
     {
         SaveLoad = new class'SaveLoadHandlerSTPC';
+    }
+
+    bHasCheckedSpeedrunSettings = (SaveLoad.LoadData("bHasCheckedSpeedrunSettings") == "") ? false : bool(SaveLoad.LoadData("bHasCheckedSpeedrunSettings"));
+
+    if (!bHasCheckedSpeedrunSettings)
+    {
+        ConsoleCommand("exec TweaksScriptsSettings");
+        bHasCheckedSpeedrunSettings = true;
+        SaveLoad.SaveData("bHasCheckedSpeedrunSettings", string(bHasCheckedSpeedrunSettings));
     }
 
     ConsoleCommand("set SequenceObject bSuppressAutoComment true");
@@ -556,11 +574,6 @@ exec function FOV(float F)
     }
 }
 
-function CustomTimeTrialOrder()
-{
-    ConsoleCommand("exec timetrialorder");
-}
-
 exec function ModeTrueGlitchless()
 {
     bTrueGlitchless = !bTrueGlitchless;
@@ -690,9 +703,8 @@ event PlayerTick(float DeltaTime)
     local float TheoreticalMaxSpeed, TheoreticalMaxSpeedSq;
     local TdMove_SpeedVault VaultMove;
     local bool bIsValidSurface;
-    local Actor FoundSurfaceActor;
+    local Actor FoundSpringBoardStep;
     local StaticMeshActor FoundStaticMeshActor;
-    local StaticMesh SpringboardMeshRef;
     local TdMove_LayOnGround LayOnGroundMove;
     local TdMove_SoftLanding SoftLandingMove;
     local float LandingBackwardsDot;
@@ -1105,26 +1117,28 @@ event PlayerTick(float DeltaTime)
         // Hidden springboard prevention
         if (myPawn.MovementState == MOVE_SpringBoarding && myPawn.OldMovementState != MOVE_SpringBoarding)
         {
-            FoundSurfaceActor = myPawn.MovementActor;
+            FoundSpringBoardStep = myPawn.MovementActor;
             bIsValidSurface = false;
 
-            if (FoundSurfaceActor != none)
+            // First step
+            if (FoundSpringBoardStep != none)
             {
-                if (FoundSurfaceActor.IsA('BlockingVolume'))
+                if (FoundSpringBoardStep.bLOIObject || FoundSpringBoardStep.IsA('BlockingVolume'))
                 {
                     bIsValidSurface = true;
                 }
                 else
                 {
-                    FoundStaticMeshActor = StaticMeshActor(FoundSurfaceActor);
+                    FoundStaticMeshActor = StaticMeshActor(FoundSpringBoardStep);
                     if (FoundStaticMeshActor != none && FoundStaticMeshActor.StaticMeshComponent != none)
-                    {
-                        if (SpringboardMeshRef == none) 
-                        {
-                            SpringboardMeshRef = StaticMesh(DynamicLoadObject("P_Gameplay.SpringBoard.SpringBoardHigh_ColMesh", class'StaticMesh'));
-                        }
-                        
-                        if (FoundStaticMeshActor.StaticMeshComponent.StaticMesh == SpringboardMeshRef)
+                    { 
+                        if (FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("P_Gameplay.SpringBoard.SpringBoardHigh_ColMesh", class'StaticMesh')) || 
+                            FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("Edge_Pt2.Box256_collision", class'StaticMesh')) || 
+                            FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("G_PlazaTemplates.S_H64_WallBench_L2u", class'StaticMesh')) || 
+                            FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("P_Ventilation.AirductSystem_02.S_AirductSystem_02a", class'StaticMesh')) || 
+                            FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("P_Renovation.ConstructionPackages_01.S_ConstructionPackages_01a", class'StaticMesh')) || 
+                            FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("P_SP06.TrainingFacilityCentreStructure_01.S_SP06_TrainingFacilityCentreStructure_01", class'StaticMesh')) || 
+                            FoundStaticMeshActor.StaticMeshComponent.StaticMesh == StaticMesh(DynamicLoadObject("P_Office.OfficeCabinet_02.S_OfficeCabinet_02", class'StaticMesh')))
                         {
                             bIsValidSurface = true;
                         }
@@ -1134,7 +1148,15 @@ event PlayerTick(float DeltaTime)
 
             if (!bIsValidSurface)
             {
-                myPawn.SetMove(MOVE_Falling);
+                TraceStart = myPawn.Location;
+                TraceEnd = myPawn.Location;
+                TraceEnd.Z -= (myPawn.CylinderComponent.CollisionHeight * 0.5) + 50.0f;
+                GroundActor = myPawn.Trace(HitLocation, HitNormal, TraceEnd, TraceStart, false);
+
+                if (GroundActor != None)
+                {
+                    myPawn.SetMove(MOVE_Falling);
+                }
             }
         }
 

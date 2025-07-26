@@ -6,8 +6,8 @@ class SofTimerTimeTrialHUD extends TdTimeTrialHUD
 var SaveLoadHandlerSTHUD   SaveLoad;
 var UIDataStore_TdGameData GameData;
 
-var float               TimeTrialTime;
-var float               ReplicatedRaceTimer;
+var float               PrevTimeAttackClock;
+var bool                bTimeAttackClockDecrementedSaved;
 
 var bool                bIsRaceTimerActive;
 var TdPlayerController  SpeedrunController;
@@ -21,8 +21,6 @@ var bool                bFinalTimeLocked;
 
 var string              StartMap;
 var string              EndMap;
-
-var float               LastRealTimeUpdate;
 
 // Trainer, macro, speed variables
 var vector              CurrentLocation;
@@ -66,6 +64,7 @@ event PostBeginPlay()
 
     ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
     ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
+    bTimeAttackClockDecrementedSaved = (SaveLoad.LoadData("TimeAttackClockDecremented") == "true");
 
     MaxVelocity = 0.0;
     MaxHeight = 0.0;
@@ -99,16 +98,11 @@ event PostBeginPlay()
 
     if (MapName == StartMap)
     {
-        TimeTrialTime = 0;
+        GameData.TimeAttackClock = 0;
         bFinalTimeLocked = false;
         SaveLoad.SaveData("FinalTimeLocked", "false");
         RunCompleteLiveSplitASLMarker = 696969;
         SaveLoad.SaveData("RunCompleteLiveSplitASLMarker", "696969");
-
-        if (GameData != none)
-        {
-            GameData.TimeAttackClock = TimeTrialTime;
-        }
     }
     
     if (MapName != "TdMainMenu")
@@ -120,10 +114,10 @@ event PostBeginPlay()
         SkipTicks = 0;
     }
 
-    LastRealTimeUpdate = WorldInfo.RealTimeSeconds;
-
     ConsoleCommand("set TdSPTimeTrialGame RaceCountDownTime 3");
     ConsoleCommand("set TdTimeTrialHUD StarRatingPos (X=1000,Y=61)");
+
+    PrevTimeAttackClock = GameData.TimeAttackClock;
 }
 
 exec function SetTimeTrialOrder(string Start, string End)
@@ -140,9 +134,9 @@ exec function SetTimeTrialOrder(string Start, string End)
 
 function Tick(float DeltaTime)
 {
-    local TdSPTimeTrialGame Game;
-    local float ElapsedRealTime;
-    local string SavedTimeTrialTimeStr;
+    local float RealDeltaTime;
+    local float OldTimeAttackClock;
+    local string SavedTimeStr;
     local string MapName;
 
     super(TdHUD).Tick(DeltaTime);
@@ -150,7 +144,6 @@ function Tick(float DeltaTime)
     if (SkipTicks > 0)
     {
         SkipTicks--;
-        LastRealTimeUpdate = WorldInfo.RealTimeSeconds;
         return;
     }
 
@@ -166,55 +159,23 @@ function Tick(float DeltaTime)
         SpeedrunController = TdPlayerController(PlayerOwner);
     }
 
-    ElapsedRealTime = WorldInfo.RealTimeSeconds - LastRealTimeUpdate;
-    LastRealTimeUpdate = WorldInfo.RealTimeSeconds;
-
-    // Replicating the race timer to avoid conflict issues if Nulaft time trial timer fix is active
-    Game = TdSPTimeTrialGame(WorldInfo.Game);
-    if (Game != none)
+    if (WorldInfo.TimeDilation > 0)
     {
-        if (Game.IsInState('RaceInProgress'))
-        {
-            if (!bIsRaceTimerActive)
-            {
-                bIsRaceTimerActive = true;
-                ReplicatedRaceTimer = 0.0f;
-            }
-        }
-        else if (Game.IsInState('RaceCountDown'))
-        {
-            if (bIsRaceTimerActive)
-            {
-                bIsRaceTimerActive = false;
-                ReplicatedRaceTimer = 0.0f;
-            }
-        }
-        else if (Game.IsInState('RaceOver'))
-        {
-            ReplicatedRaceTimer = 0.0f;
-        }
-        else
-        {
-            if (bIsRaceTimerActive)
-            {
-                bIsRaceTimerActive = false;
-            }
-        }
-
-        if (bIsRaceTimerActive)
-        {
-            ReplicatedRaceTimer += DeltaTime;
-        }
+        RealDeltaTime = DeltaTime / WorldInfo.TimeDilation;
+    }
+    else
+    {
+        RealDeltaTime = DeltaTime;
     }
 
-    // --- SPEEDRUN TIMER (TIME TRIAL TIME) LOGIC ---
     MapName = WorldInfo.GetMapName();
+
     if (!bLoadedTimeFromSave && MapName != StartMap)
     {
-        SavedTimeTrialTimeStr = SaveLoad.LoadData("TimeTrialTime");
-        if (SavedTimeTrialTimeStr != "")
+        SavedTimeStr = SaveLoad.LoadData("TimeAttackClock");
+        if (SavedTimeStr != "")
         {
-            TimeTrialTime = float(SavedTimeTrialTimeStr);
+            GameData.TimeAttackClock = float(SavedTimeStr);
         }
         bLoadedTimeFromSave = true;
     }
@@ -227,31 +188,83 @@ function Tick(float DeltaTime)
             SaveLoad.SaveData("FinalTimeLocked", "true");
             RunCompleteLiveSplitASLMarker = 969696;
             SaveLoad.SaveData("RunCompleteLiveSplitASLMarker", "969696");
+            SpeedrunController.ClientMessage("Final time - " $ FormatSpeedrunTime(GameData.TimeAttackClock));
         }
+    }
+
+    OldTimeAttackClock = GameData.TimeAttackClock;
+
+    if (!bTimeAttackClockDecrementedSaved && GameData.TimeAttackClock < PrevTimeAttackClock)
+    {
+        bTimeAttackClockDecrementedSaved = true;
+        SaveLoad.SaveData("TimeAttackClockDecremented", "true");
     }
     
     if (!bFinalTimeLocked)
     {
-        // Increment using real elapsed time so it runs during pause/menus
-        TimeTrialTime += ElapsedRealTime;
+        GameData.TimeAttackClock += RealDeltaTime;
     }
 
-    // Centralised assignment of TimeAttackClock.
-    if (GameData != none)
-    {
-        GameData.TimeAttackClock = TimeTrialTime;
-    }
+    PrevTimeAttackClock = OldTimeAttackClock;
 }
 
 function bool CheckFinalTTCompletion()
 {
     local TdSPTimeTrialGame TTGame;
+
     TTGame = TdSPTimeTrialGame(WorldInfo.Game);
+
     if (TTGame != None && TTGame.IsInState('RaceFinishLine'))
     {
         return true;
     }
+
     return false;
+}
+
+event PostRender()
+{
+    local TdSPTimeTrialGame Game;
+    local TdGameUISceneClient SceneClient;
+    local UIScene ActiveScene;
+    local string MapName;
+
+    super.PostRender();
+
+    Game = TdSPTimeTrialGame(WorldInfo.Game);
+
+    MapName = WorldInfo.GetMapName();
+
+    SceneClient = TdGameUISceneClient(Class'UIRoot'.static.GetSceneClient());
+    ActiveScene = SceneClient.GetActiveScene();
+
+    if ((MapName == "TdMainMenu") ||
+    (ActiveScene != None && ActiveScene.SceneTag == 'TdStartRace' ||
+    ActiveScene.SceneTag == 'TdEndOfRace' ||
+    ActiveScene.SceneTag == 'TdStarRating' ||
+    ActiveScene.SceneTag == 'TdNewRecord'))
+    {
+        DrawRaceTimer(Game);
+        if (Game != none)
+        {
+            DrawStarRating(Game);
+        }
+    }
+}
+
+function DrawPausedHUD()
+{
+    local TdSPTimeTrialGame Game;
+
+    Game = TdSPTimeTrialGame(WorldInfo.Game);
+
+    super.DrawPausedHUD();
+    
+    DrawRaceTimer(Game);
+    if (Game != none)
+    {
+        DrawStarRating(Game);
+    }
 }
 
 function DrawLivingHUD()
@@ -259,6 +272,7 @@ function DrawLivingHUD()
     local TdSPTimeTrialGame Game;
     local bool bCheatsActive;
     local bool bIllegalFramerate;
+    local bool bLostThreeStar;
 
     super(TdTimeTrialHUD).DrawLivingHUD();
     Game = TdSPTimeTrialGame(WorldInfo.Game);
@@ -270,15 +284,20 @@ function DrawLivingHUD()
         if (Game != none)
         {
             DrawStarRating(Game);
+
+            if (Game.StarRatingTimes[0] > 0)
+            {
+                bLostThreeStar = Game.GetPlayerTime() >= Game.StarRatingTimes[0];
+            }
         }
         
         DrawTrainerItems();
 
         bCheatsActive = CheckCheatsTrainerMode();
         bIllegalFramerate = CheckIllegalFramerateLimit();
-        if (bCheatsActive || bIllegalFramerate)
+        if (bCheatsActive || bIllegalFramerate || bLostThreeStar || bTimeAttackClockDecrementedSaved)
         {
-            DrawViolationMessages(bCheatsActive, bIllegalFramerate);
+            DrawWarningMessages(bCheatsActive, bIllegalFramerate, bLostThreeStar);
         }
     }
 }
@@ -286,29 +305,102 @@ function DrawLivingHUD()
 function DrawRaceTimer(TdSPTimeTrialGame Game)
 {
     local string TimeString;
+    local float RTime;
     local Vector2D pos;
     local float DisplayTime, XL, YL;
     local string LRT;
     local float DSOffset;
 
-    DisplayTime = ReplicatedRaceTimer;
-    TimeString = "TT - " $ GetTimeString(DisplayTime);
-    Canvas.Font = MediumFont;
-    DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
-    DSOffset = FMax(1, DSOffset);
-    ComputeHUDPosition(RaceTimerPos.X, RaceTimerPos.Y, 0, 0, pos);
-    DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, TimeString, WhiteColor);
+    if (WorldInfo.GetMapName() != "TdMainMenu")
+    {
+        DisplayTime = Game.GetPlayerTime();
+        TimeString = "TT - " $ GetTimeString(DisplayTime);
+        Canvas.Font = MediumFont;
+        DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
+        DSOffset = FMax(1, DSOffset);
+        ComputeHUDPosition(RaceTimerPos.X, RaceTimerPos.Y, 0, 0, pos);
+        DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, TimeString, WhiteColor);
+    }
 
-    Canvas.TextSize(TimeString, XL, YL);
-    Canvas.Font = TinyFont;
-    DSOffset = (TinyFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
-    DSOffset = FMax(1, DSOffset);
+    RTime = GameData.TimeAttackClock;
+    LRT = "69* - " $ FormatSpeedrunTime(RTime);
 
-    LRT = "69* - " $ GetTimeString(GameData.TimeAttackClock);
-    DrawTextWithOutLine(pos.X, pos.Y + (YL * 0.8), DSOffset, DSOffset, LRT, WhiteColor);
+    if (WorldInfo.GetMapName() != "TdMainMenu")
+    {
+        Canvas.TextSize(TimeString, XL, YL);
+        Canvas.Font = TinyFont;
+        DSOffset = (TinyFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
+        DSOffset = FMax(1, DSOffset);
+        DrawTextWithOutLine(pos.X, pos.Y + (YL * 0.8), DSOffset, DSOffset, LRT, WhiteColor);
+    }
+    else
+    {
+        Canvas.Font = MediumFont;
+        DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
+        DSOffset = FMax(1, DSOffset);
+        ComputeHUDPosition(RaceTimerPos.X, RaceTimerPos.Y, 0, 0, pos);
+        DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, LRT, WhiteColor);
+    }
 }
 
-function DrawViolationMessages(bool bCheatsActive, bool bIllegalFramerate)
+function string FormatSpeedrunTime(float TotalTime)
+{
+    local int Minutes, Seconds, Centiseconds;
+    local string MinutesStr, SecondsStr, CentisecondsStr;
+
+    if (TotalTime < 0.0)
+    {
+        TotalTime = 0.0;
+    }
+
+    // Calculate minutes, seconds, and centiseconds by truncating via int cast
+    Minutes = int(TotalTime / 60);
+    Seconds = int(TotalTime) % 60;
+    Centiseconds = int((TotalTime - int(TotalTime)) * 100);
+
+    if (Minutes < 10)
+    {
+        MinutesStr = "0" $ Minutes;
+    }
+    else
+    {
+        MinutesStr = string(Minutes);
+    }
+
+    if (Seconds < 10)
+    {
+        SecondsStr = "0" $ Seconds;
+    }
+    else
+    {
+        SecondsStr = string(Seconds);
+    }
+
+    if (Centiseconds < 10)
+    {
+        CentisecondsStr = "0" $ Centiseconds;
+    }
+    else
+    {
+        CentisecondsStr = string(Centiseconds);
+    }
+
+    return MinutesStr $ ":" $ SecondsStr $ ":" $ CentisecondsStr;
+}
+
+function DrawTextWithOutLine(float XPos, float YPos, float OffsetX, float OffsetY, string TextToDraw, Color TextColor)
+{
+    Canvas.SetPos(XPos + OffsetX, YPos + OffsetY);
+    Canvas.DrawColor = FontDSColor;
+    //Canvas.DrawColor.A *= Square(FadeAmount);
+    Canvas.DrawText(TextToDraw);
+    Canvas.SetPos(XPos, YPos);
+    Canvas.DrawColor = TextColor;
+    //Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+    Canvas.DrawText(TextToDraw);
+}
+
+function DrawWarningMessages(bool bCheatsActive, bool bIllegalFramerate, bool bThreeStarLost)
 {
     local float Y, ShadowOffset;
     local string Message;
@@ -334,6 +426,21 @@ function DrawViolationMessages(bool bCheatsActive, bool bIllegalFramerate)
         }
         Message $= "Illegal framerate! 60-62 framerate limit required.";
     }
+
+    if (bThreeStarLost)
+    {
+        if (Message != "")
+        {
+            Message $= "\n";
+        }
+        Message $= "3-star rating no longer achievable!";
+    }
+
+    //if (bTimeAttackClockDecrementedSaved)
+    //{
+    //    if (Message != "") Message $= "\n";
+    //    Message $= "Nulaft Timer Fix is active! The timer will be broken.";
+    //}
 
     if (Message != "")
     {
@@ -362,10 +469,12 @@ function bool CheckCheatsTrainerMode()
 function bool CheckIllegalFramerateLimit()
 {
     local float FrameRateLimit;
+    local bool FrameRateLimiter;
 
     FrameRateLimit = class'GameEngine'.default.MaxSmoothedFrameRate;
+    FrameRateLimiter = class'GameEngine'.default.bSmoothFrameRate;
 
-    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0)
+    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0 || !FrameRateLimiter)
     {
         return true;
     }
@@ -377,7 +486,8 @@ event Destroyed()
     {
         SaveLoad = new class'SaveLoadHandlerSTHUD';
     }
-    SaveLoad.SaveData("TimeTrialTime", string(TimeTrialTime));
+    SaveLoad.SaveData("TimeAttackClock", string(GameData.TimeAttackClock));
+    SaveLoad.SaveData("TimeAttackClockDecremented", "false");
     
     super.Destroyed();
 }

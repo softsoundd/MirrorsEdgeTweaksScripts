@@ -18,18 +18,22 @@ var bool bBotOHKOEnabled;
 var bool bHoldFireEnabled;
 var bool bMonitorFallHeight;
 var bool bMonitorNoclip;
+var string NoclipFlyFasterKey;
+var string NoclipFlySlowerKey;
 var string MeleeState;
+var bool bUltraGraphicsEnabled;
 var bool bJumpMacroActive;
 var bool bInteractMacroActive;
 var bool bGrabMacroActive;
 
 struct SavedBotInfo
 {
+    var TdBotPawn BotPawnRef; // Direct reference to the spawned pawn
     var string PawnClassName;
     var string AITemplatePath;
     var vector Location;
     var rotator Rotation;
-    var bool  bWasGivenAI;
+    var bool bWasGivenAI;
     var string CustomSkeletalMeshIdentifier;
 };
 
@@ -45,8 +49,8 @@ var float DollyStartFOV;
 var float CurrentFOV;
 var float GlobalDollyDuration;
 var float GlobalElapsedTime;
-var transient float m_fDollyLastRealTime;
-var transient bool m_bDollyRealTimeInitialized;
+var transient float DollyLastRealTime;
+var transient bool bDollyRealTimeInitialised;
 var transient bool bLinearDollyEasing; // True if dolly should use linear start/end easing
 
 struct DollyKeyframe
@@ -79,18 +83,19 @@ exec function ListCheats()
     ClientMessage("\"MaxFPS\" - Sets the max FPS limit (default value = 62). Set to 0 to remove the limiter altogether");
     ClientMessage("\"Resolution [WIDTH] [HEIGHT] [WINDOWED (optional)]\" - Sets the resolution. Also fixes blurry text for resolutions greater than 1080p");
     ClientMessage("\"DollyHelp\" - See dolly camera functions");
-    ClientMessage("\"UltraGraphics\" - Sets draw distance and LOD quality to its maximum (only for currently loaded actors). Restarting the level resets these properties");
+    ClientMessage("\"UltraGraphics\" - Sets draw distance and LOD quality to its maximum. Restarting the level resets these properties");
     ClientMessage("\"ColorScaling [RED] [GREEN] [BLUE]\" - Adjusts individual color channels for the final image (default values = 1, 1, 1)");
     ClientMessage("\"PostProcess Highlights [RED] [GREEN] [BLUE]\" - More granular control compared to ColorScaling. Accepts values 0 to 1");
     ClientMessage("\"PostProcess Midtones [RED] [GREEN] [BLUE]\" - More granular control compared to ColorScaling. Accepts values 0 to 1");
     ClientMessage("\"PostProcess Shadows [RED] [GREEN] [BLUE]\" - More granular control compared to ColorScaling. Accepts values -1 to 1");
     ClientMessage("\"PostProcess Saturation [STRENGTH]\" - Adjusts saturation strength for the final image. Accepts values -1 to 1");
     ClientMessage("\"FreezeFrame\" - Freezes time and hides the crosshair. Set the desired delay value in seconds before it engages (use interact key or pause to exit this mode)");
-    ClientMessage("\"FreezeWorld\" - Freezes everything except you");
+    ClientMessage("\"FreezeBots\" - Freezes just bots");
+    ClientMessage("\"FreezePlayer\" - Freezes just the player");
+    ClientMessage("\"FreezeWorld\" - Freezes everything except the player");
     ClientMessage("\"StreamLevelIn [MAP PACKAGE]\" - Load the specified map package name and make it active (or all of them with \"All\"). Refer to \"stat levels\" for a list of valid packages");
     ClientMessage("\"OnlyLoadLevel [MAP PACKAGE]\" - Load the specified map package name but keep it inactive (or all of them with \"All\"). Refer to \"stat levels\" for a list of valid packages");
     ClientMessage("\"StreamLevelOut [MAP PACKAGE]\" - Unload the specified map package name (or all of them with \"All\"). Refer to \"stat levels\" for a list of valid packages");
-    ClientMessage("\"Bind [KEY] [COMMAND]\" - Custom bind function that improves upon the built in \"setbind\" command. If you want to clear a bind, type \"null\" in the command parameter");
     ClientMessage(" ");
     ClientMessage("Player Cheats:");
     ClientMessage("\"God\" - Toggles \"true\" God mode (doesn't make bots invincible)");
@@ -187,7 +192,7 @@ exec function DollyHelp()
     ClientMessage("\"DollyRoll [DEGREES]\" - Sets the roll of the dolly camera. Alternativey use Left and Right arrow keys");
     ClientMessage("\"DollyFOV [DEGREES]\" - Sets the FOV (zoom) of the dolly camera. Alternativey use Up and Down arrow keys");
     ClientMessage("\"DollySpeed\" - Sets the input movement speed of the dolly camera (e.g. make it slower if you want finer control). Alternativey use Q and E keys");
-    ClientMessage("\"DollyPlay\" - Plays the dolly camera sequence. The UI will be forcefully hidden during this, avoid pressing buttons");
+    ClientMessage("\"DollyPlay\" - Plays the dolly camera sequence. The UI will be forcefully hidden during this, avoid pressing buttons. \"DollyPlay Linear\" removes interpolation easing from the start keyframe");
     ClientMessage("\"DollyStop\" - Clears all keyframes and exits out of dolly camera mode");
     ClientMessage(" ");
 }
@@ -321,11 +326,8 @@ exec function FreezeBots()
             if (SkelMesh != none && SkelMesh.PhysicsAssetInstance != none && SkelMesh.PhysicsWeight > 0.0f)
             {
                 Bot.CustomTimeDilation = 0;
-
                 SkelMesh.bUpdateKinematicBonesFromAnimation = false; 
-                
                 SkelMesh.PhysicsAssetInstance.SetAllBodiesFixed(true);
-
                 SkelMesh.PutRigidBodyToSleep();
             }
 
@@ -346,9 +348,7 @@ exec function FreezeBots()
                 if (SkelMesh.PhysicsWeight > 0.0f)
                 {
                     SkelMesh.bUpdateKinematicBonesFromAnimation = true; 
-
                     SkelMesh.PhysicsAssetInstance.SetAllBodiesFixed(false);
-                    
                     SkelMesh.WakeRigidBody();
                 }
             }
@@ -466,9 +466,7 @@ exec function BotOHKO()
 // Toggle Fly (noclip) mode
 exec function Noclip()
 {
-    local TdPawn PlayerPawn;
-
-    PlayerPawn = TdPawn(Pawn);
+    local TdMove_Landing LandingMove;
 
     if (bCheatFlying) 
     {
@@ -477,14 +475,14 @@ exec function Noclip()
         Outer.GotoState('PlayerWalking');
         Pawn.SetCollision(true, true);
         Pawn.CheatWalk();
-        PlayerPawn.bAllowMoveChange = true;
-        PlayerPawn.AccelRate = 6144;
+        myPawn.bAllowMoveChange = true;
+        myPawn.AccelRate = 6144;
 
-        if (PlayerPawn != None)
+        if (myPawn != None)
         {
-            // Handle fall height reset
-            ConsoleCommand("set TdMove_Landing HardLandingHeight 9999999");
-            ConsoleCommand("set TdPawn FallingUncontrolledHeight 9999999");
+            LandingMove = TdMove_Landing(myPawn.Moves[20]);
+            LandingMove.HardLandingHeight = 9999999;
+            myPawn.FallingUncontrolledHeight = 9999999;
             bMonitorFallHeight = true; // Start monitoring to see if we have landed yet
             EnsureHelperProxy();
         }
@@ -497,19 +495,19 @@ exec function Noclip()
         // Enable noclip
         if ((Pawn != None) && Pawn.CheatGhost())
         {
-            if (PlayerPawn != None && PlayerPawn.GetStateName() == 'UncontrolledFall')
+            if (myPawn != None && myPawn.GetStateName() == 'UncontrolledFall')
             {
-                PlayerPawn.GotoState('None'); // Exit UncontrolledFall
+                myPawn.GotoState('None'); // Exit UncontrolledFall
             }
             
-            PlayerPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
-            PlayerPawn.SetMove(MOVE_Walking); // Force walking as certain moves won't allow noclip to function
+            myPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
+            myPawn.SetMove(MOVE_Walking); // Force walking as certain moves won't allow noclip to function
 
             bCheatFlying = true;
             Pawn.CheatGhost(); // Previously I didn't include this but turns out it's needed to truly disable collision when activating noclip while jumping
             Outer.GotoState('PlayerFlying');
-            PlayerPawn.bAllowMoveChange = false; // Prevents attack/q turns and other actions from interrupting flying state
-            PlayerPawn.AccelRate = 999999;
+            myPawn.bAllowMoveChange = false; // Prevents attack/q turns and other actions from interrupting flying state
+            myPawn.AccelRate = 999999;
             ConsoleCommand("set TdHudEffectManager UncontrolledFallingEffectSpeed 0");
 
             bMonitorFallHeight = false;
@@ -522,27 +520,35 @@ exec function Noclip()
             bCollideWorld = false;
         }
     }
+
+    ConsoleCommand("exec TweaksScriptsSettings");
+}
+
+exec function SetNoclipFlyFasterKey(string Keybind)
+{
+    ConsoleCommand("set MirrorsEdgeCheatManager NoclipFlyFasterKey " $  Keybind);
+}
+
+exec function SetNoclipFlySlowerKey(string Keybind)
+{
+    ConsoleCommand("set MirrorsEdgeCheatManager NoclipFlySlowerKey " $  Keybind);
 }
 
 // Checks if player is still in the air after exiting noclip, and if landed, sets fall values back to default. This is used for the TpToSurface function too
 function FallHeightMonitoring()
 {
-    local TdPawn PlayerPawn;
-
-    if (bMonitorFallHeight && Pawn != None)
+    local TdMove_Landing LandingMove;
+    
+    if (bMonitorFallHeight && myPawn != None)
     {
-        PlayerPawn = TdPawn(Pawn);
-
-        if (PlayerPawn != None)
+        if (myPawn.Physics == PHYS_Walking && myPawn.Base != none)
         {
-            if (PlayerPawn.Physics == PHYS_Walking)
-            {
-                // Reset commands once landed
-                ConsoleCommand("set TdMove_Landing HardLandingHeight 530");
-                ConsoleCommand("set TdPawn FallingUncontrolledHeight 1000");
-                ConsoleCommand("set TdHudEffectManager UncontrolledFallingEffectSpeed 0.5");
-                bMonitorFallHeight = false; // Stop monitoring after landing
-            }
+            LandingMove = TdMove_Landing(myPawn.Moves[20]);
+
+            LandingMove.HardLandingHeight = 530;
+            myPawn.FallingUncontrolledHeight = 1000;
+            ConsoleCommand("set TdHudEffectManager UncontrolledFallingEffectSpeed 0.5");
+            bMonitorFallHeight = false; // Stop monitoring after landing
         }
     }
 }
@@ -550,15 +556,13 @@ function FallHeightMonitoring()
 // Keypress and death monitoring while in noclip
 function NoclipMonitoring(float DeltaTime)
 {
-    local TdPawn PlayerPawn;
     local TdPlayerController PC;
 
-    PlayerPawn = TdPawn(Pawn);
     PC = TdPlayerController(Pawn.Controller);
 
     if (bMonitorNoclip && Pawn == None) // Check if the player is dead
     {
-        PlayerPawn.bAllowMoveChange = true;
+        myPawn.bAllowMoveChange = true;
         bCheatFlying = false;
         ConsoleCommand("set TdPawn bCollideWorld true");
         Outer.GotoState('PlayerWalking');
@@ -572,19 +576,19 @@ function NoclipMonitoring(float DeltaTime)
 
     if (PC != None && PC.PlayerInput != None)
     {
-        if (PC.PlayerInput.PressedKeys.Find('E') != -1)
+        if (PC.PlayerInput.PressedKeys.Find(name(NoclipFlyFasterKey)) != -1)
         {
-            if (PlayerPawn.AirSpeed <= 20000)
+            if (myPawn.AirSpeed <= 20000)
             {
-                PlayerPawn.AirSpeed += 2500 * DeltaTime;
+                myPawn.AirSpeed += 2500 * DeltaTime;
             }
         }
 
-        if (PC.PlayerInput.PressedKeys.Find('Q') != -1)
+        if (PC.PlayerInput.PressedKeys.Find(name(NoclipFlySlowerKey)) != -1)
         {
-            if (PlayerPawn.AirSpeed >= 200)
+            if (myPawn.AirSpeed >= 200)
             {
-                PlayerPawn.AirSpeed -= 2500 * DeltaTime;
+                myPawn.AirSpeed -= 5000 * DeltaTime;
             }
         }
 
@@ -703,10 +707,10 @@ exec function SaveLocation()
 {
     local vector ConvertedLocation;
     local float PitchDegrees, YawDegrees;
-    local TdPawn PlayerPawnRef;
     local TdPlayerController PlayerController;
     local int i;
     local SavedBotInfo BotEntry;
+    local array<SavedBotInfo> LiveBots; // Temp array for currently alive bots
 
     if (Pawn == None)
     {
@@ -716,6 +720,7 @@ exec function SaveLocation()
 
     PlayerController = TdPlayerController(Pawn.Controller);
 
+    // Save player state
     SavedLocation = Pawn.Location;
     SavedVelocity = Pawn.Velocity;
     SavedHealth = Pawn.Health;
@@ -729,13 +734,13 @@ exec function SaveLocation()
     SavedRotation.Yaw = Pawn.Rotation.Yaw;
     SavedRotation.Roll = 0;
 
-    PlayerPawnRef = TdPawn(Pawn);
-    if (PlayerPawnRef != None)
+    if (myPawn != None)
     {
-        SavedLastJumpLocation = PlayerPawnRef.LastJumpLocation;
-        SavedMoveState = PlayerPawnRef.MovementState;
+        SavedLastJumpLocation = myPawn.LastJumpLocation;
+        SavedMoveState = myPawn.MovementState;
     }
 
+    // Client message for player state
     ConvertedLocation.X = SavedLocation.X / 100;
     ConvertedLocation.Y = SavedLocation.Y / 100;
     ConvertedLocation.Z = SavedLocation.Z / 100;
@@ -745,12 +750,12 @@ exec function SaveLocation()
     ClientMessage("Saved Location: X=" $ ConvertedLocation.X $ ", Y=" $ ConvertedLocation.Y $ ", Z=" $ ConvertedLocation.Z $
                   " | Saved Rotation: Pitch=" $ PitchDegrees $ ", Yaw=" $ YawDegrees $ " | Saved Move State: " $ SavedMoveState);
 
-
     if (SaveLoad == None)
     {
         SaveLoad = new class'SaveLoadHandlerMECM';
     }
 
+    // Persist player data
     SaveLoad.SaveData("SavedLocation", class'SaveLoadHandlerMECM'.static.SerialiseVector(SavedLocation));
     SaveLoad.SaveData("SavedVelocity", class'SaveLoadHandlerMECM'.static.SerialiseVector(SavedVelocity));
     SaveLoad.SaveData("SavedRotation", class'SaveLoadHandlerMECM'.static.SerialiseRotator(SavedRotation));
@@ -758,13 +763,29 @@ exec function SaveLocation()
     SaveLoad.SaveData("SavedReactionTimeEnergy", string(SavedReactionTimeEnergy));
     SaveLoad.SaveData("SavedReactionTimeState", string(SavedReactionTimeState));
 
-    if (PlayerPawnRef != None)
+    if (myPawn != None)
     {
         SaveLoad.SaveData("SavedLastJumpLocation", class'SaveLoadHandlerMECM'.static.SerialiseVector(SavedLastJumpLocation));
-        SaveLoad.SaveData("SavedMoveState", EnumToString(PlayerPawnRef.MovementState));
+        SaveLoad.SaveData("SavedMoveState", EnumToString(myPawn.MovementState));
     }
 
-    // Save any bots we may have spawned
+    // Before saving bot data, iterate through our tracked bots to:
+    // 1. Remove any bots that have been killed or destroyed.
+    // 2. Update the Location and Rotation for bots that are still alive.
+    for (i = 0; i < ActiveSpawnedBotsData.Length; i++)
+    {
+        if (ActiveSpawnedBotsData[i].BotPawnRef != None && !ActiveSpawnedBotsData[i].BotPawnRef.bDeleteMe)
+        {
+            // Bot is alive, update its state and add it to our list of live bots
+            ActiveSpawnedBotsData[i].Location = ActiveSpawnedBotsData[i].BotPawnRef.Location;
+            ActiveSpawnedBotsData[i].Rotation = ActiveSpawnedBotsData[i].BotPawnRef.Rotation;
+            LiveBots.AddItem(ActiveSpawnedBotsData[i]);
+        }
+    }
+    // The master list now only contains live, tracked bots
+    ActiveSpawnedBotsData = LiveBots;
+
+    // Save any bots we have spawned
     SaveLoad.SaveData("SavedBotCount", string(ActiveSpawnedBotsData.Length));
 
     for (i = 0; i < ActiveSpawnedBotsData.Length; i++)
@@ -795,7 +816,7 @@ static function string EnumToString(EMovement MoveState)
         case MOVE_WallRunningRight:   return "MOVE_WallRunningRight";
         case MOVE_WallRunningLeft:    return "MOVE_WallRunningLeft";
         case MOVE_WallClimbing:       return "MOVE_WallClimbing";
-        case MOVE_Walking:            return "MOVE_Jump";
+        case MOVE_Jump:               return "MOVE_Jump";
         case MOVE_IntoGrab:           return "MOVE_IntoGrab";
         case MOVE_Crouch:             return "MOVE_Crouch";
         case MOVE_Climb:              return "MOVE_Climb";
@@ -837,7 +858,6 @@ static function EMovement StringToEMovement(string EnumValue)
 exec function TpToSavedLocation()
 {
     local TdPlayerController PlayerControllerRef;
-    local TdPawn PlayerPawnRef;
     local string LoadedStringData;
     local int i, NumBotsToLoad;
     local SavedBotInfo BotDataToLoad;
@@ -898,18 +918,25 @@ exec function TpToSavedLocation()
             PlayerControllerRef.ReactionTimeEnergy = SavedReactionTimeEnergy;
         }
 
-        if (TdPawn(Pawn).GetStateName() == 'UncontrolledFall') { TdPawn(Pawn).GotoState('None'); }
-
-        PlayerPawnRef = TdPawn(Pawn);
-        if (PlayerPawnRef != None)
+        if (myPawn.GetStateName() == 'UncontrolledFall')
         {
-            PlayerPawnRef.StopAllCustomAnimations(0);
-            PlayerPawnRef.LastJumpLocation = SavedLastJumpLocation;
+            myPawn.GotoState('None');
+        }
 
-            if (SavedMoveState == MOVE_Walking || SavedMoveState == MOVE_Falling || SavedMoveState == MOVE_WallRun)
-            { PlayerPawnRef.SetMove(SavedMoveState); }
-            else if (SavedMoveState == MOVE_Grabbing) { PlayerPawnRef.SetMove(MOVE_IntoGrab); }
-            else { PlayerPawnRef.SetMove(MOVE_Walking); } // Fallback
+        myPawn.StopAllCustomAnimations(0);
+        myPawn.LastJumpLocation = SavedLastJumpLocation;
+
+        if (SavedMoveState == MOVE_Walking || SavedMoveState == MOVE_Falling || SavedMoveState == MOVE_WallRun)
+        {
+            myPawn.SetMove(SavedMoveState);
+        }
+        else if (SavedMoveState == MOVE_Grabbing)
+        {
+            myPawn.SetMove(MOVE_IntoGrab);
+        }
+        else
+        {
+            myPawn.SetMove(MOVE_Walking); // Fallback
         }
 
         Pawn.SetPhysics(PHYS_None);
@@ -925,8 +952,13 @@ exec function TpToSavedLocation()
 
         for (i = 0; i < NumBotsToLoad; i++)
         {
-            BotDataToLoad.PawnClassName = ""; BotDataToLoad.AITemplatePath = ""; BotDataToLoad.CustomSkeletalMeshIdentifier = "";
+            // Clear struct for new data
+            BotDataToLoad.PawnClassName = ""; 
+            BotDataToLoad.AITemplatePath = ""; 
+            BotDataToLoad.CustomSkeletalMeshIdentifier = "";
+            BotDataToLoad.BotPawnRef = None; // Ensure reference is cleared
 
+            // Load bot data from persistence
             BotDataToLoad.PawnClassName = SaveLoad.LoadData("SavedBot_" $ i $ "_PawnClass");
             BotDataToLoad.AITemplatePath = SaveLoad.LoadData("SavedBot_" $ i $ "_AITemplate");
 
@@ -947,6 +979,7 @@ exec function TpToSavedLocation()
                 continue;
             }
 
+            // Spawn the bot
             RespawnedBot = SpawnBotInternal(
                 BotDataToLoad.PawnClassName,
                 BotDataToLoad.AITemplatePath,
@@ -954,7 +987,7 @@ exec function TpToSavedLocation()
                 BotDataToLoad.Rotation,
                 BotDataToLoad.CustomSkeletalMeshIdentifier,
                 BotDataToLoad.bWasGivenAI,
-                true
+                true // Ensure this bot is retracked
             );
 
             if (RespawnedBot == None)
@@ -1034,33 +1067,26 @@ exec function TpToSurface()
     local vector HitNormal, HitLocation, ConvertedLocation;
     local vector ViewLocation;
     local rotator ViewRotation;
-    local TdPawn PlayerPawn;
+    local TdMove_Landing LandingMove;
 
-    PlayerPawn = TdPawn(Pawn);  // Ensure we have the player pawn reference
-
-    // Get the player's current view location and rotation (where the player is looking)
     GetPlayerViewPoint(ViewLocation, ViewRotation);
 
-    // Perform a trace to find the surface the player is looking at, casting a long line from the viewpoint
     HitActor = Trace(HitLocation, HitNormal, ViewLocation + 1000000 * vector(ViewRotation), ViewLocation, true);
 
-    // If we hit something (e.g., a wall, floor, or object)
     if (HitActor != None)
     {
-        // Override UncontrolledFall state if currently active
-        if (TdPawn(Pawn).GetStateName() == 'UncontrolledFall')
+        if (myPawn.GetStateName() == 'UncontrolledFall')
         {
-            TdPawn(Pawn).GotoState('None');  // Exit the UncontrolledFall state
+            myPawn.GotoState('None');
         }
 
-        PlayerPawn.StopAllCustomAnimations(0); // Immediately stop animations played before this function was called
+        myPawn.StopAllCustomAnimations(0);
 
-        // Start monitoring fall state to dynamically set fall height
-        if (PlayerPawn != None)
+        if (myPawn != None)
         {
-            // Handle fall height reset
-            ConsoleCommand("set TdMove_Landing HardLandingHeight 9999999");
-            ConsoleCommand("set TdPawn FallingUncontrolledHeight 9999999");
+            LandingMove = TdMove_Landing(myPawn.Moves[20]);
+            LandingMove.HardLandingHeight = 9999999;
+            myPawn.FallingUncontrolledHeight = 9999999;
             bMonitorFallHeight = true;
             EnsureHelperProxy();
         }
@@ -1068,10 +1094,8 @@ exec function TpToSurface()
         // Adjust the hit location slightly to avoid embedding the player into the surface
         HitLocation += HitNormal * 4.0;
 
-        // Teleport the player to the hit location
         ViewTarget.SetLocation(HitLocation);
 
-        // Convert the hit location to be ClientMessage friendly
         ConvertedLocation.X = HitLocation.X / 100;
         ConvertedLocation.Y = HitLocation.Y / 100;
         ConvertedLocation.Z = HitLocation.Z / 100;
@@ -1096,10 +1120,8 @@ exec function SaveTimerLocation()
     }
     SaveLoad.SaveData("TimerLocation", class'SaveLoadHandlerMECM'.static.SerialiseVector(TimerLocation));
 
-    // Use ConsoleCommand to pass the target location to the HUD
     ConsoleCommand("SetHUDTimerLocation " $ TimerLocation.X $ " " $ TimerLocation.Y $ " " $ TimerLocation.Z);
 
-    // Reset the timer and pause it
     ConsoleCommand("ResetHUDTimer");
 
     ClientMessage("Timer location set: X=" $ (TimerLocation.X / 100) $ ", Y=" $ (TimerLocation.Y / 100) $ ", Z=" $ (TimerLocation.Z / 100));
@@ -1110,13 +1132,10 @@ exec function SaveTimerLocation()
 // Sets the Z component of the LastJumpLocation variable. Todo: see if setting the entire vector behaves any differently for flings, as is the game's default behaviour
 exec function LastJumpLocation(float NewZValueInMeters)
 {
-    local TdPawn PlayerPawn;
-    PlayerPawn = TdPawn(Pawn);  // Cast PlayerOwner.Pawn to TdPawn
-
-    if (PlayerPawn != None)
+    if (myPawn != None)
     {
         // Convert the specified Z value from meters to Unreal units by multiplying by 100
-        PlayerPawn.LastJumpLocation.Z = NewZValueInMeters * 100;
+        myPawn.LastJumpLocation.Z = NewZValueInMeters * 100;
 
         ClientMessage("Last Jump Location Z set to: " $ NewZValueInMeters);
     }
@@ -1136,10 +1155,8 @@ exec function JumpHeight(float JumpHeight)
     PropertyName = "BaseJumpZ";
     TargetClass = "TdMove_Jump";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(JumpHeight);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1153,10 +1170,8 @@ exec function JumpSpeed(float JumpSpeed)
     PropertyName = "JumpAddXY";
     TargetClass = "TdMove_Jump";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(JumpSpeed);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1170,10 +1185,8 @@ exec function SpeedCap(float SpeedCap)
     PropertyName = "TerminalVelocity";
     TargetClass = "PhysicsVolume";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(SpeedCap);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1187,10 +1200,8 @@ exec function RollHeight(float RollHeight)
     PropertyName = "HardLandingHeight";
     TargetClass = "TdMove_Landing";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(RollHeight);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1204,10 +1215,8 @@ exec function DeathHeight(float DeathHeight)
     PropertyName = "FallingUncontrolledHeight";
     TargetClass = "TdPawn";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(DeathHeight);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1221,10 +1230,8 @@ exec function Gravity(float GravityMultiplier)
     PropertyName = "GravityModifier";
     TargetClass = "TdPawn";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(GravityMultiplier);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1238,10 +1245,8 @@ exec function GameSpeed(float SpeedMultiplier)
     PropertyName = "TimeDilation";
     TargetClass = "WorldInfo";
 
-    // Construct the "set" console command
     Command = "set " $ TargetClass $ " " $ PropertyName $ " " $ string(SpeedMultiplier);
 
-    // Execute the command
     ConsoleCommand(Command);
 }
 
@@ -1274,22 +1279,38 @@ exec function MaxFPS(int FPS)
     }
 }
 
-// Sets "ultra" graphics. Todo: see if we can set these variables directly rather than relying on the "set" command
 exec function UltraGraphics()
+{
+    EnsureHelperProxy();
+
+    bUltraGraphicsEnabled = !bUltraGraphicsEnabled;
+
+    if (bUltraGraphicsEnabled)
+    {
+        ConsoleCommand("set DecalComponent bStaticDecal 0");
+        ConsoleCommand("set DecalComponent bNeverCull 1");
+        HelperProxy.LoopFunction(2, "ApplyUltraGraphics");
+        ClientMessage("Ultra graphics enabled.");
+    }
+    else
+    {
+        HelperProxy.StopTimer();
+        ClientMessage("Ultra graphics disabled.");
+    }
+}
+
+exec function ApplyUltraGraphics()
 {
     local Actor A;
     local StaticMeshComponent StaticMeshComp;
     local SkeletalMeshComponent SkeletalMeshComp;
     local PrimitiveComponent PrimComp;
 
-    ConsoleCommand("set DecalComponent bStaticDecal 0");
-    ConsoleCommand("set DecalComponent bNeverCull 1");
-
     ForEach AllActors(class'Actor', A)
     {
         ForEach A.AllOwnedComponents(class'StaticMeshComponent', StaticMeshComp)
         {
-            if (StaticMeshComp != none)
+            if (StaticMeshComp != none && StaticMeshComp.ForcedLODModel != 1)
             {
                 StaticMeshComp.ForcedLODModel = 1;
             }
@@ -1297,7 +1318,7 @@ exec function UltraGraphics()
 
         ForEach A.AllOwnedComponents(class'SkeletalMeshComponent', SkeletalMeshComp)
         {
-            if (SkeletalMeshComp != none)
+            if (SkeletalMeshComp != none && SkeletalMeshComp.ForcedLODModel != 1)
             {
                 SkeletalMeshComp.ForcedLODModel = 1;
             }
@@ -1305,14 +1326,12 @@ exec function UltraGraphics()
 
         ForEach A.AllOwnedComponents(class'PrimitiveComponent', PrimComp)
         {
-            if (PrimComp != none)
+            if (PrimComp != none && PrimComp.CachedCullDistance != 0.0)
             {
                 PrimComp.SetCullDistance(0.0);
             }
         }
     }
-
-    ClientMessage("Ultra graphics settings applied.");
 }
 
 // Freezes time and hides crosshair - this too is stolen from UE3 source
@@ -1371,19 +1390,15 @@ exec function Weapon GiveWeapon(String WeaponClassStr)
     local Weapon Weap;
     local class<Weapon> WeaponClass;
 
-    // Dynamically load the class for the specified weapon
     WeaponClass = class<Weapon>(DynamicLoadObject(WeaponClassStr, class'Class'));
 
-    // Check if the player already has the weapon in their inventory
     Weap = Weapon(Pawn.FindInventoryType(WeaponClass));
 
     if (Weap != None)
     {
-        // If the weapon is already in the player's inventory, return it
         return Weap;
     }
 
-    // If the weapon is not in the inventory, create it and return the created weapon
     return Weapon(Pawn.CreateInventory(WeaponClass));
 }
 
@@ -1473,45 +1488,7 @@ exec function Weapon FlashbangGrenade()
     return GiveWeapon("TdSharedContent.TdWeapon_FlashbangGrenade");
 }
 
-// Custom version of setbind that handles null keys a bit better
-exec function Bind(string Key, string Command)
-{
-    local int i;
-    local PlayerInput Input;
-
-    // Directly access the PlayerInput from Outer without casting
-    Input = Outer.PlayerInput;
-
-    if (Input != None)
-    {
-        // Check if the Command is "null" or empty to clear the key binding
-        if (Len(Command) == 0 || Command == "null")
-        {
-            Input.SetBind(name(Key), "");  // Clear the key binding
-            ClientMessage("Key " $ Key $ " binding cleared.");
-        }
-        else
-        {
-            // Unbind any other keys bound to this command
-            for (i = 0; i < Input.Bindings.Length; i++)
-            {
-                if (Input.Bindings[i].Command == Command)
-                {
-                    Input.SetBind(Input.Bindings[i].Name, "");  // Clear the existing bind for the same command
-                }
-            }
-            // Set the new key binding
-            Input.SetBind(name(Key), Command);
-            ClientMessage("Key " $ Key $ " bound to command: " $ Command);
-        }
-    }
-    else
-    {
-        ClientMessage("Failed to bind key: PlayerInput not found.");
-    }
-}
-
-// Spam macros (see Todo in MirrorsEdgeMacro class)
+// Spam macros
 exec function JumpMacro()
 {
     if (!bJumpMacroActive)
@@ -1872,7 +1849,6 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
     local string boolString;
     local float ConvertedTimeStep;
 
-    // Get the PlayerController from Outer.
     PC = Outer;
     if (PC == None)
     {
@@ -1880,7 +1856,6 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         return;
     }
 
-    // Get WorldInfo from the PlayerController.
     WI = PC.WorldInfo;
     if (WI == None)
     {
@@ -1888,7 +1863,6 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
         return;
     }
 
-    // Choose which timing struct to update based on a lower-case timing category.
     if (TimingCategory == "primary" || TimingCategory == "primaryscenetiming")
     {
         if (PropertyName == "bfixedtimestep")
@@ -2044,7 +2018,7 @@ exec function SetPhysX(string TimingCategory, string PropertyName, float Value)
 // Ensures the helper proxy for the extended Actor class is initialised
 function EnsureHelperProxy()
 {
-    if (HelperProxy == None || HelperProxy.Pawn != TdPawn(Pawn)) // Check if proxy is missing or outdated
+    if (HelperProxy == None || HelperProxy.Pawn != TdPawn(Pawn))
     {
         if (HelperProxy != None)
         {
@@ -2052,8 +2026,8 @@ function EnsureHelperProxy()
         }
 
         HelperProxy = WorldInfo.Spawn(class'CheatHelperProxy');
-        HelperProxy.CheatManagerReference = self; // Reference to the cheat manager
-        HelperProxy.Pawn = TdPawn(Pawn); // Explicitly cast Pawn to TdPawn
+        HelperProxy.CheatManagerReference = self;
+        HelperProxy.Pawn = TdPawn(Pawn);
     }
 }
 
@@ -2164,20 +2138,26 @@ function Dolly(float DeltaTime)
     if (PlayerCam == none) return;
 
     currentRealWorldTime = PlayerPawn.WorldInfo.RealTimeSeconds;
-    if (!m_bDollyRealTimeInitialized)
+    if (!bDollyRealTimeInitialised)
     {
         realFrameDeltaSeconds = 0.0;
-        m_fDollyLastRealTime = currentRealWorldTime;
-        m_bDollyRealTimeInitialized = true;
+        DollyLastRealTime = currentRealWorldTime;
+        bDollyRealTimeInitialised = true;
     }
     else
     {
-        realFrameDeltaSeconds = currentRealWorldTime - m_fDollyLastRealTime;
-        m_fDollyLastRealTime = currentRealWorldTime;
+        realFrameDeltaSeconds = currentRealWorldTime - DollyLastRealTime;
+        DollyLastRealTime = currentRealWorldTime;
     }
 
-    if (realFrameDeltaSeconds < 0.0) realFrameDeltaSeconds = 0.0;
-    if (realFrameDeltaSeconds > 0.2) realFrameDeltaSeconds = 0.2;
+    if (realFrameDeltaSeconds < 0.0) 
+    {
+        realFrameDeltaSeconds = 0.0;
+    }
+    if (realFrameDeltaSeconds > 0.2)
+    {
+        realFrameDeltaSeconds = 0.2;
+    }
 
     GlobalElapsedTime += realFrameDeltaSeconds;
 
@@ -2191,7 +2171,7 @@ function Dolly(float DeltaTime)
         ConsoleCommand("toggleui");
         ClientMessage("Dolly playback complete.");
         UpdateDollyDebug();
-        m_bDollyRealTimeInitialized = false;
+        bDollyRealTimeInitialised = false;
         return;
     }
 
@@ -2538,13 +2518,13 @@ exec function DollyUndo()
     }
 
     // Determine which keyframe number is being removed.
-    // If there's a dummy keyframe at index 0, true keyframes start at 1.
+    // If there's a dummy keyframe at index 0, true keyframes start at 1
     if (Keyframes.Length > 0 && Keyframes[0].Duration == 0)
-        removedKeyframeNumber = Keyframes.Length - 1; // Last true keyframe number.
+        removedKeyframeNumber = Keyframes.Length - 1; // Last true keyframe number
     else
-        removedKeyframeNumber = Keyframes.Length;     // Otherwise, it's the last element.
+        removedKeyframeNumber = Keyframes.Length; // Otherwise, it's the last element
 
-    // If there's only one true keyframe left, remove everything.
+    // If there's only one true keyframe left, remove everything
     if (trueKeyCount == 1)
     {
         Keyframes.Length = 0;
@@ -2661,7 +2641,7 @@ function UpdateDollyDebug()
 
     FlushPersistentDebugLines();
 
-    // Determine if the first keyframe is a dummy.
+    // Determine if the first keyframe is a dummy
     if (Keyframes.Length > 0 && Keyframes[0].Duration == 0)
     {
         startIndex = 1;
@@ -2673,18 +2653,17 @@ function UpdateDollyDebug()
         trueKeyCount = Keyframes.Length;
     }
 
-    // Draw a debug box at each "true" keyframe (using an extent of 10 units on each axis).
     for (i = startIndex; i < Keyframes.Length; i++)
     {
         kf = Keyframes[i];
         DrawDebugBox(kf.Position, vect(10, 10, 10), 0, 255, 0, true);
     }
 
-    // Draw debug lines connecting adjacent "true" keyframes.
-    // Only draw lines if there are at least two true keyframes.
+    // Draw debug lines connecting adjacent "true" keyframes
+    // Only draw lines if there are at least two true keyframes
     if (trueKeyCount >= 2)
     {
-        // If dummy exists, only connect keyframes from index 1 onward.
+        // If dummy exists, only connect keyframes from index 1 onward
         for (i = startIndex; i < Keyframes.Length - 1; i++)
         {
             DrawDebugLine(Keyframes[i].Position, Keyframes[i + 1].Position, 255, 0, 0, true);
@@ -2692,7 +2671,7 @@ function UpdateDollyDebug()
     }
 }
 
-exec function DollyPlay(optional string EaseMode) // Added optional EaseMode
+exec function DollyPlay(optional string EaseMode)
 {
     local TdPawn PlayerPawn;
     local TdPlayerCamera PlayerCam;
@@ -2713,7 +2692,7 @@ exec function DollyPlay(optional string EaseMode) // Added optional EaseMode
         return;
     }
 
-    if (Keyframes.Length == 0) // Or perhaps Keyframes.Length <= 1 if a dummy always exists and you need at least one real keyframe
+    if (Keyframes.Length == 0)
     {
         ClientMessage("No keyframes recorded (or not enough for playback).");
         return;
@@ -2723,12 +2702,10 @@ exec function DollyPlay(optional string EaseMode) // Added optional EaseMode
     if (Caps(EaseMode) == "LINEAR")
     {
         bLinearDollyEasing = true;
-        ClientMessage("Dolly playback easing: Linear Start/End");
     }
     else
     {
         bLinearDollyEasing = false; // Default to SmootherStep
-        ClientMessage("Dolly playback easing: SmootherStep (Ease In/Out)");
     }
 
     DollyStartPos = PlayerCam.FreeFlightPosition;
@@ -2736,30 +2713,25 @@ exec function DollyPlay(optional string EaseMode) // Added optional EaseMode
     DollyStartFOV = PlayerCam.DefaultFOV;
 
     // Compute the global duration: sum the durations of all keyframes.
-    GlobalDollyDuration = 0; // Ensure it's reset before summing
+    GlobalDollyDuration = 0;
     for (i = 0; i < Keyframes.Length; i++)
     {
         GlobalDollyDuration += Keyframes[i].Duration;
     }
 
     // Check if GlobalDollyDuration is valid
-    if (GlobalDollyDuration <= 0.0 && Keyframes.Length > 0) // Only an issue if all keyframes (including dummy) have 0 duration
+    if (GlobalDollyDuration <= 0.0 && Keyframes.Length > 0)
     {
-        // This case might occur if only the dummy keyframe (duration 0) exists,
-        // or if all user-added keyframes also had 0 duration (which DollyAdd prevents).
-        // If GlobalDollyDuration is 0, playback isn't meaningful.
         ClientMessage("Dolly total duration is zero. Cannot play.");
-        // Potentially handle by snapping to the last frame or just returning.
-        // For now, let's prevent division by zero later by returning.
         bIsDollyActive = false;
         bIsPlayingDolly = false;
-        m_bDollyRealTimeInitialized = false;
+        bDollyRealTimeInitialised = false;
         return;
     }
 
 
     GlobalElapsedTime = 0.0;
-    m_bDollyRealTimeInitialized = false;
+    bDollyRealTimeInitialised = false;
 
     bIsDollyActive = true;
     bIsPlayingDolly = true;
@@ -2938,9 +2910,17 @@ function TdBotPawn SpawnBotInternal(string PawnClassName, string AITemplatePath,
     bSetupFailed = false;
     while (StageResult < 1 && !bSetupFailed)
     {
-        if (NewBot == None || NewBot.bDeleteMe) { bSetupFailed = true; break; }
+        if (NewBot == None || NewBot.bDeleteMe)
+        {
+            bSetupFailed = true;
+            break;
+        }
         StageResult = NewBot.SetupTemplate(LoadedTemplate, true);
-        if (StageResult == 0 && NewBot.SetupTemplateCount == 0) { bSetupFailed = true; }
+
+        if (StageResult == 0 && NewBot.SetupTemplateCount == 0)
+        {
+            bSetupFailed = true;
+        }
     }
 
     if (bCustomMeshPathApplied && LoadedTemplate != None)
@@ -2948,7 +2928,9 @@ function TdBotPawn SpawnBotInternal(string PawnClassName, string AITemplatePath,
         if (LoadedTemplate.SkeletalMesh == ResolvedMeshPath)
         {
             LoadedTemplate.SkeletalMesh = OriginalTemplateMeshPath;
-        } else {
+        }
+        else
+        {
             ClientMessage("Warning (InternalSpawn): Template mesh path was not as expected before reverting. Current: '"@LoadedTemplate.SkeletalMesh@"', Expected set: '"@ResolvedMeshPath@"' Original: '"@OriginalTemplateMeshPath@"'");
         }
         bCustomMeshPathApplied = false;
@@ -3039,6 +3021,7 @@ function TdBotPawn SpawnBotInternal(string PawnClassName, string AITemplatePath,
         // Record bot data
         if (bRecordForSaving)
         {
+            BotRecord.BotPawnRef = NewBot; // Store the direct reference
             BotRecord.PawnClassName = PawnClassName;
             BotRecord.AITemplatePath = AITemplatePath;
             BotRecord.Location = NewBot.Location;
@@ -3088,16 +3071,17 @@ exec function SpawnBot(string PawnClassName, string AITemplatePath, optional str
 
 function DestroyAllTrackedBots()
 {
-    local TdBotPawn Bot;
+    local int i;
 
-    foreach WorldInfo.AllActors(class'TdBotPawn', Bot)
+    for (i = 0; i < ActiveSpawnedBotsData.Length; i++)
     {
-        if (Bot != None && !Bot.bDeleteMe)
+        if (ActiveSpawnedBotsData[i].BotPawnRef != None && !ActiveSpawnedBotsData[i].BotPawnRef.bDeleteMe)
         {
-            Bot.Destroy();
+            ActiveSpawnedBotsData[i].BotPawnRef.Destroy();
         }
     }
 
+    // Clear the tracking array
     ActiveSpawnedBotsData.Remove(0, ActiveSpawnedBotsData.Length);
 }
 
@@ -4517,4 +4501,6 @@ exec function SaveProfile()
 
 defaultproperties
 {
+    NoclipFlyFasterKey = "E"
+    NoclipFlyslowerKey = "Q"
 }

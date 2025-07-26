@@ -54,7 +54,7 @@ function EnsureHelperProxy()
     }
     else
     {
-        ActiveMacroMode = 0; // Default to InteractMacro if SaveLoad handler couldn't be initialized
+        ActiveMacroMode = 0; // Default to InteractMacro if SaveLoad handler couldn't be initialised
     }
 }
 

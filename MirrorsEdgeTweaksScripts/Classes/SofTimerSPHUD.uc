@@ -13,6 +13,7 @@ var(HUDIcons) Vector2D  SpeedPos;
 var transient string    SpeedUnitString;
 var transient int       MeasurementUnits;
 var bool                bTimerVisible;
+var bool                bSimpleTimer;
 
 var bool              bLoadedTimeFromSave;
 var bool              bUndeclaredLoadActive;
@@ -184,6 +185,7 @@ event PostBeginPlay()
 
     // Speedrun HUD elements
     bTimerVisible = (SaveLoad.LoadData("TimerHUDVisible") == "") ? true : bool(SaveLoad.LoadData("TimerHUDVisible"));
+    bSimpleTimer = (SaveLoad.LoadData("SimpleTimerHUD") == "") ? false : bool(SaveLoad.LoadData("SimpleTimerHUD"));
     ShowSpeed = (SaveLoad.LoadData("ShowSpeed") == "") ? false : bool(SaveLoad.LoadData("ShowSpeed"));
     ShowTrainerHUDItems = (SaveLoad.LoadData("ShowTrainerHUDItems") == "") ? false : bool(SaveLoad.LoadData("ShowTrainerHUDItems"));
     ShowMacroFeedback = (SaveLoad.LoadData("ShowMacroFeedback") == "") ? false : bool(SaveLoad.LoadData("ShowMacroFeedback"));
@@ -313,6 +315,29 @@ event PostBeginPlay()
         DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_StdE_Roof_boss_Bac");
         DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_Ext_Lgts"); 
         DeclaredLoadPackages_StormdrainGate.AddItem("Stormdrain_SB02_Mus"); // sd gate 2 end
+
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_All-std_Slc"); // sd gate 1 start
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_All-std_Slc_Spt");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_All-std_Aud");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std_Art");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std_Aud");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std_Bac");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std_Spt");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std_Lgts");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_bac");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_All_Std_Bac");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Ext_Lgts"); // sd gate 1 end
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std-StdP_Slc"); // sd gate 2 start
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std-StdP_Slc_Spt");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std-StdP_Aud");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_Std-StdP_slc_Lgts");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_StdP");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Art");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Aud");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Bac");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Spt");
+        DeclaredUnloadPackages_StormdrainGate.AddItem("Stormdrain_StdP_Lgts"); // sd gate 2 end
         
         // All other normal Stormdrain packages
         DeclaredLoadPackages_Stormdrain.AddItem("Stormdrain_Std"); // sluice start (inbounds)
@@ -890,6 +915,14 @@ function Tick(float DeltaTime)
     // Chapter 2-specific monitoring
     if (MapName == "Stormdrain_p")
     {
+        if ((MonitorReachedFirstSDGate() || MonitorReachedSecondSDGate() || MonitorReachedThirdSDGate()) && SoundFix)
+        {
+            SetSoundCueMaxPlays("A_SP02.StormGate.Moving", 1);
+            SetSoundCueMaxPlays("A_SP02.StormGate.Start_Open", 1);
+            SetSoundCueMaxPlays("A_SP02.StormGate.Start_Close", 1);
+            SetSoundCueMaxPlays("A_SP02.StormGate.Stop", 1);
+        }
+
         if (MonitorJKLevelLoadsAfterFirstElevator())
         {
             // We reached above the ceiling from elevator clip - boss levels should NOT be RTA
@@ -921,9 +954,9 @@ function Tick(float DeltaTime)
     }
 
     // Chapter 4-specific monitoring
-    else if (MapName == "Subway_p" && bLoadedTimeFromSave && !bAfterElevatorCrash)
+    else if (MapName == "Subway_p" && bLoadedTimeFromSave)
     {
-        if (MonitorReachedSubwayStation())
+        if (MonitorReachedSubwayStation() && !bAfterElevatorCrash)
         {
             // We reached subway station checkpoint after elevator crash, prepare timer for inbounds handling
             DeclaredLoadPackages_Subway.AddItem("Subway_SB02_Mus");
@@ -937,6 +970,11 @@ function Tick(float DeltaTime)
 
             bAfterElevatorCrash = true;
             SaveLoad.SaveData("AfterElevatorCrashTriggered", "true");
+        }
+
+        if (MonitorReachedFanRoom() && SoundFix)
+        {
+            SetSoundCueMaxPlays("A_SP04.FanRoom.Fan_01", 1);
         }
     }
 
@@ -1083,7 +1121,7 @@ function Tick(float DeltaTime)
                     bFinalTimeLocked = true;
                     RunCompleteLiveSplitASLMarker = 987654321;
                     SaveLoad.SaveData("FinalTimeLocked", "true");
-                    SpeedrunController.ClientMessage("Final time - " $ GetTimeString(GameData.TimeAttackClock));
+                    SpeedrunController.ClientMessage("Final time - " $ FormatSpeedrunTime(GameData.TimeAttackClock));
                 }
             }
         }
@@ -1454,6 +1492,21 @@ function bool IsActiveCheckpoint(string CheckpointName)
     return (CheckpointManager.GetActiveCheckpoint() == CheckpointName);
 }
 
+function bool MonitorReachedFirstSDGate()
+{
+    return IsActiveCheckpoint("Container_cp3");
+}
+
+function bool MonitorReachedSecondSDGate()
+{
+    return IsActiveCheckpoint("Gate1");
+}
+
+function bool MonitorReachedThirdSDGate()
+{
+    return IsActiveCheckpoint("Waterfall");
+}
+
 function bool MonitorJKLevelLoadsAfterFirstElevator()
 {
     local Vector TargetLocation;
@@ -1467,7 +1520,7 @@ function bool MonitorJKLevelLoadsAfterFirstElevator()
     TargetLocation = vect(1075.81, -3403.87, 4570.00);
     Distance = VSize(SpeedrunController.Pawn.Location - TargetLocation);
 
-    if (Distance < 100.0)
+    if (Distance < 200.0)
     {
         return true;
     }
@@ -1515,6 +1568,11 @@ function bool MonitorReachedBrokenElevator()
 function bool MonitorReachedSubwayStation()
 {
     return IsActiveCheckpoint("Subway_Station");
+}
+
+function bool MonitorReachedFanRoom()
+{
+    return IsActiveCheckpoint("FanP");
 }
 
 function bool MonitorEnteredLoadingBay()
@@ -1792,65 +1850,87 @@ exec function LoadSavedCheckpointTime()
     }
 }
 
+event PostRender()
+{
+    local string MapName;
+
+    super.PostRender();
+
+    MapName = WorldInfo.GetMapName();
+
+    if (MapName == "TdMainMenu")
+    {
+        DrawSpeedrunTimer();
+    }
+}
 
 // DrawLivingHUD & DrawLoadRemovedTimer: HUD rendering
 function DrawLivingHUD()
 {
-    local TdSPStoryGame Game;
     local float PosY;
     local bool bCheatsActive;
     local bool bIllegalFramerate;
 
     super(TdSPHUD).DrawLivingHUD();
 
-    Game = TdSPStoryGame(WorldInfo.Game);
-
-    if (Game != none)
+    DrawSpeedrunTimer();
+    
+    if (ShowSpeed)
     {
-        if (bTimerVisible)
+        DrawSpeed(PosY);
+    }
+
+    DrawTrainerItems();
+
+    bCheatsActive = CheckCheatsTrainerMode();
+    bIllegalFramerate = CheckIllegalFramerateLimit();
+
+    if (bCheatsActive || bIllegalFramerate)
+    {
+        DrawWarningMessages(bCheatsActive, bIllegalFramerate);
+    }
+}
+
+function DrawPausedHUD()
+{
+    super.DrawPausedHUD();
+    
+    DrawSpeedrunTimer();
+}
+
+function DrawSpeedrunTimer()
+{
+    if (bTimerVisible)
+    {
+        if (ShouldIncrementTimer())
         {
-            if (ShouldIncrementTimer())
+            DrawLoadRemovedTimer(true);  
+        }         
+        else
+        {
+            // Briefly alternate display if paused
+            if ((WorldInfo.RealTimeSeconds - float(int(WorldInfo.RealTimeSeconds))) < 0.5)
             {
-                DrawLoadRemovedTimer(Game, true); 
-            }           
+                DrawLoadRemovedTimer(true); 
+            }
             else
             {
-                // Briefly alternate display if paused
-                if ((WorldInfo.RealTimeSeconds - float(int(WorldInfo.RealTimeSeconds))) < 0.5)
-                {
-                    DrawLoadRemovedTimer(Game, true); 
-                }
-                else
-                {
-                    DrawLoadRemovedTimer(Game, false);
-                }
+                DrawLoadRemovedTimer(false);
             }
-        }
-        
-        if (ShowSpeed)
-        {
-            DrawSpeed(PosY);
-        }
-
-        DrawTrainerItems();
-
-        bCheatsActive = CheckCheatsTrainerMode();
-        bIllegalFramerate = CheckIllegalFramerateLimit();
-
-        if (bCheatsActive || bIllegalFramerate)
-        {
-            DrawViolationMessages(bCheatsActive, bIllegalFramerate);
         }
     }
 }
 
-function DrawLoadRemovedTimer(TdSPStoryGame Game, bool bBothTimes)
+function DrawLoadRemovedTimer(bool bBothTimes)
 {
+    local TdGameUISceneClient SceneClient;
+    local UIScene ActiveScene;
     local string TimeString, SplitString, SavedSplit;
     local float RTime;
     local Vector2D pos;
     local float DSOffset;
     local string MapName;
+    local bool bForceSimpleDisplay;
 
     if(GameData == none)
     {
@@ -1859,38 +1939,139 @@ function DrawLoadRemovedTimer(TdSPStoryGame Game, bool bBothTimes)
 
     MapName = WorldInfo.GetMapName();
 
+    // If we are in the main menu or if the user has simple timer enabled
+    bForceSimpleDisplay = bSimpleTimer || (MapName == "TdMainMenu");
+
     if(bBothTimes)
     {
         RTime = GameData.TimeAttackClock;
-        TimeString = "LRT - " $ GetTimeString(RTime);
+
+        SceneClient = TdGameUISceneClient(Class'UIRoot'.static.GetSceneClient());
+        ActiveScene = SceneClient.GetActiveScene();
+
+        if (ActiveScene != None && ActiveScene.SceneTag == 'TdGameObjectives')
+        {
+            TimerPos.Y = 125;
+            SplitPos.Y = 158;
+        }
+        else if (WorldInfo.GetMapName() == "TdMainMenu")
+        {
+            TimerPos.Y = 105;
+            SplitPos.Y = 138;
+        }
+        else
+        {
+            TimerPos.Y = 55;
+            SplitPos.Y = 88;
+        }
+
+        if (bForceSimpleDisplay)
+        {
+            if (MapName == "TdMainMenu")
+            {
+                TimerPos.X = 1100;
+            }
+            else
+            {
+                TimerPos.X = 1056;
+            }
+            TimeString = FormatSpeedrunTime(RTime);
+        }
+        else
+        {
+            TimerPos.X = 1000;
+            TimeString = "LRT - " $ FormatSpeedrunTime(RTime);
+        }
         Canvas.Font = MediumFont;
         DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
         DSOffset = FMax(1, DSOffset);
         ComputeHUDPosition(TimerPos.X, TimerPos.Y, 0, 0, pos);
         DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, TimeString, WhiteColor);
     }
+    
     Canvas.Font = TinyFont;
     DSOffset = (TinyFont.GetMaxCharHeight() * TinyFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
     DSOffset = FMax(1, DSOffset);
 
-    if (MapName == "Tutorial_p" || MapName == "Edge_p")
+    if (!bForceSimpleDisplay)
     {
-        SplitString = "";
-    }
-    else
-    {
-        SavedSplit = SaveLoad.LoadData("LastSplitTime");
-        if (SavedSplit != "")
-        {
-            SplitString = "LAST SPLIT - " $ SavedSplit;
-        }
-        else
+        if (MapName == "Tutorial_p" || MapName == "Edge_p")
         {
             SplitString = "";
         }
+        else
+        {
+            SavedSplit = SaveLoad.LoadData("LastSplitTime");
+            if (SavedSplit != "")
+            {
+                SplitString = "LAST SPLIT - " $ SavedSplit;
+            }
+            else
+            {
+                SplitString = "";
+            }
+        }
     }
+
     ComputeHUDPosition(SplitPos.X, SplitPos.Y, 0, 0, pos);
     DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, SplitString, WhiteColor);
+}
+
+function string FormatSpeedrunTime(float TotalTime)
+{
+    local int Minutes, Seconds, Centiseconds;
+    local string MinutesStr, SecondsStr, CentisecondsStr;
+
+    if (TotalTime < 0.0)
+    {
+        TotalTime = 0.0;
+    }
+
+    // Calculate minutes, seconds, and centiseconds by truncating via int cast
+    Minutes = int(TotalTime / 60);
+    Seconds = int(TotalTime) % 60;
+    Centiseconds = int((TotalTime - int(TotalTime)) * 100);
+
+    if (Minutes < 10)
+    {
+        MinutesStr = "0" $ Minutes;
+    }
+    else
+    {
+        MinutesStr = string(Minutes);
+    }
+
+    if (Seconds < 10)
+    {
+        SecondsStr = "0" $ Seconds;
+    }
+    else
+    {
+        SecondsStr = string(Seconds);
+    }
+
+    if (Centiseconds < 10)
+    {
+        CentisecondsStr = "0" $ Centiseconds;
+    }
+    else
+    {
+        CentisecondsStr = string(Centiseconds);
+    }
+
+    return MinutesStr $ ":" $ SecondsStr $ ":" $ CentisecondsStr;
+}
+
+function DrawTextWithOutLine(float XPos, float YPos, float OffsetX, float OffsetY, string TextToDraw, Color TextColor)
+{
+    Canvas.SetPos(XPos + OffsetX, YPos + OffsetY);
+    Canvas.DrawColor = FontDSColor;
+    //Canvas.DrawColor.A *= Square(FadeAmount);
+    Canvas.DrawText(TextToDraw);
+    Canvas.SetPos(XPos, YPos);
+    Canvas.DrawColor = TextColor;
+    //Canvas.DrawColor.A = byte(float(255) * FadeAmount);
+    Canvas.DrawText(TextToDraw);
 }
 
 // Command for toggling timer visibility
@@ -1898,9 +2079,20 @@ exec function ToggleTimer()
 {
     bTimerVisible = !bTimerVisible;
     SaveLoad.SaveData("TimerHUDVisible", bTimerVisible ? "true" : "false");
+    SpeedrunController.ClientMessage("LRT timer visibility set to: " $ bTimerVisible);
 }
 
-function DrawViolationMessages(bool bCheatsActive, bool bIllegalFramerate)
+exec function ToggleSimpleTimer()
+{
+    bTimerVisible = true;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+
+    bSimpleTimer = !bSimpleTimer;
+    SaveLoad.SaveData("SimpleTimerHUD", bSimpleTimer ? "true" : "false");
+    SpeedrunController.ClientMessage("Simple timer set to: " $ bSimpleTimer);
+}
+
+function DrawWarningMessages(bool bCheatsActive, bool bIllegalFramerate)
 {
     local float Y, ShadowOffset;
     local string Message;
@@ -1954,10 +2146,12 @@ function bool CheckCheatsTrainerMode()
 function bool CheckIllegalFramerateLimit()
 {
     local float FrameRateLimit;
+    local bool FrameRateLimiter;
 
     FrameRateLimit = class'GameEngine'.default.MaxSmoothedFrameRate;
+    FrameRateLimiter = class'GameEngine'.default.bSmoothFrameRate;
 
-    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0)
+    if (FrameRateLimit < 60 || FrameRateLimit > 62 || FrameRateLimit <= 0 || !FrameRateLimiter)
     {
         return true;
     }
@@ -1977,7 +2171,7 @@ event Destroyed()
     if (bLevelCompleted)
     {
         LastSplitTime = GameData.TimeAttackClock;
-        SaveLoad.SaveData("LastSplitTime", GetTimeString(LastSplitTime));
+        SaveLoad.SaveData("LastSplitTime", FormatSpeedrunTime(LastSplitTime));
         if (WorldInfo.GetMapName() == "Edge_p")
         {
             ChapterName = "Prologue";
@@ -2014,7 +2208,7 @@ event Destroyed()
         {
             ChapterName = "Chapter 8";
         }
-        SpeedrunController.ClientMessage(ChapterName $ " split - " $ GetTimeString(LastSplitTime));
+        SpeedrunController.ClientMessage(ChapterName $ " split - " $ FormatSpeedrunTime(LastSplitTime));
 
         SaveLoad.SaveData("bNewMapSavePending", "true");
     }
@@ -2056,8 +2250,8 @@ function DrawSpeed(out float PosY)
     DSOffset = (MediumFont.GetMaxCharHeight() * MediumFont.GetScalingFactor(float(Canvas.SizeY))) * FontDSOffset;
     DSOffset = FMax(1, DSOffset);
     SpeedString = GetFormattedTime(int(Speed + 0.5));
-    DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, SpeedString, WhiteColor);
-    DrawTextWithOutLine(pos.X + (float(42) * ResolutionScaleX), pos.Y, DSOffset, DSOffset, SpeedUnitString, WhiteColor);  
+    super(TdHUD).DrawTextWithOutLine(pos.X, pos.Y, DSOffset, DSOffset, SpeedString, WhiteColor);
+    super(TdHUD).DrawTextWithOutLine(pos.X + (float(42) * ResolutionScaleX), pos.Y, DSOffset, DSOffset, SpeedUnitString, WhiteColor);  
 }
 
 function CacheMeasurementUnitInfo()
@@ -2159,9 +2353,11 @@ function DrawTrainerItems()
         CurrentRotation = PlayerPawn.Rotation;
         PlayerVelocity = PlayerPawn.Velocity;
         PlayerVelocity.Z = 0;
-        PlayerSpeed = VSize(PlayerVelocity);
-        PlayerSpeed *= 0.036;
-
+        PlayerSpeed = VSize(PlayerVelocity) * 0.036;
+        if(MeasurementUnits == 1)
+        {
+            PlayerSpeed = PlayerSpeed / 1.609344;
+        }
         MaxVelocity = UpdateMaxValue(MaxVelocity, PlayerSpeed, LastMaxVelocityUpdateTime, CurrentTime);
         MaxHeight   = UpdateMaxValue(MaxHeight, CurrentLocation.Z, LastMaxHeightUpdateTime, CurrentTime);
 
@@ -2198,8 +2394,8 @@ function DrawTrainerItems()
         HealthText = "H = " $ int(PlayerHealth) $ "%";
         ReactionTimeEnergyText = "RT = " $ int(ReactionTimeEnergy) $ "%";
         MoveStateText = "MS = " $ (Left(string(MoveState), 5) == "MOVE_" ? Mid(string(MoveState), 5) : string(MoveState));
-        SpeedText = "V = " $ FormatFloat(RoundedSpeed) $ " km/h";
-        MaxVelocityText = "VT = " $ FormatFloat(RoundedMaxSpeed) $ " km/h";
+        SpeedText = "V = " $ FormatFloat(RoundedSpeed) $ " " $ SpeedUnitString;
+        MaxVelocityText = "VT = " $ FormatFloat(RoundedMaxSpeed) $ " " $ SpeedUnitString;
         LocationTextX = "X = " $ FormatFloat(RoundedX);
         LocationTextY = "Y = " $ FormatFloat(RoundedY);
         LocationTextZ = "Z = " $ FormatFloat(RoundedZ);
@@ -2282,6 +2478,7 @@ exec function ToggleSoundFix()
 {
     SoundFix = !SoundFix;
     SaveLoad.SaveData("SoundFix", string(SoundFix));
+    SpeedrunController.ClientMessage("Sound fix set to: " $ SoundFix);
 }
 
 exec function SetSoundCueMaxPlays(string SoundCueName, int MaxPlays)
@@ -2313,24 +2510,28 @@ exec function ToggleSpeed()
 {
     ShowSpeed = !ShowSpeed;
     SaveLoad.SaveData("ShowSpeed", string(ShowSpeed));
+    SpeedrunController.ClientMessage("Speedometer visibility set to: " $ ShowSpeed);
 }
 
 exec function ToggleTrainerHUD()
 {
     ShowTrainerHUDItems = !ShowTrainerHUDItems;
     SaveLoad.SaveData("ShowTrainerHUDItems", string(ShowTrainerHUDItems));
+    SpeedrunController.ClientMessage("Trainer HUD visibility set to: " $ ShowTrainerHUDItems);
 }
 
 exec function ToggleMacroFeedback()
 {
     ShowMacroFeedback = !ShowMacroFeedback;
     SaveLoad.SaveData("ShowMacroFeedback", string(ShowMacroFeedback));
+    SpeedrunController.ClientMessage("Macro feedback visibility set to: " $ ShowMacroFeedback);
 }
 
 exec function ToggleBagHUD()
 {
     ShowBagHUD = !ShowBagHUD;
     SaveLoad.SaveData("ShowBagHUD", string(ShowBagHUD));
+    SpeedrunController.ClientMessage("Bag HUD visibility set to: " $ ShowBagHUD);
 }
 
 exec function BagHUDOn()
@@ -2355,6 +2556,24 @@ exec function TimerOff()
 {
     bTimerVisible = false;
     SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+}
+
+exec function SimpleTimerOn()
+{
+    bTimerVisible = true;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+
+    bSimpleTimer = true;
+    SaveLoad.SaveData("SimpleTimerHUD", string(bSimpleTimer));
+}
+
+exec function SimpleTimerOff()
+{
+    bTimerVisible = true;
+    SaveLoad.SaveData("TimerHUDVisible", string(bTimerVisible));
+
+    bSimpleTimer = false;
+    SaveLoad.SaveData("SimpleTimerHUD", string(bSimpleTimer));
 }
 
 exec function SpeedOn()
@@ -2397,14 +2616,14 @@ exec function ModeAnyPercent()
 {
     HundredPercentMode = false;
     SaveLoad.SaveData("HundredPercentMode", string(HundredPercentMode));
-    ConsoleCommand("disconnect");
+    //ConsoleCommand("disconnect");
 }
 
 exec function Mode100Percent()
 {
     HundredPercentMode = true;
     SaveLoad.SaveData("HundredPercentMode", string(HundredPercentMode));
-    ConsoleCommand("disconnect");
+    //ConsoleCommand("disconnect");
 }
 
 defaultproperties
